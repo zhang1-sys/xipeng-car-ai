@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Environment files (contain API keys)
+.env
+.env.local
+.env.production
+.env.*.local
+deploy/.env
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# Build
+dist/
+build/
+
+# Log files
+*.log
+*.err.log
+*.out.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backend temp/data
+backend/persistence/
+backend/data/
+backend/tmp-*
+backend/db/*.db
+
+# Claude
+.claude/
+
+# Bundled node binaries
+.tools/
+
+# Next.js build info
+frontend/tsconfig.tsbuildinfo

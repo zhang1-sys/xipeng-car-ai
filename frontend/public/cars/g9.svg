@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <defs>
+    <linearGradient id="body9" x1="0" y1="0" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1c2028"/>
+      <stop offset="50%" stop-color="#2d3240"/>
+      <stop offset="100%" stop-color="#14161c"/>
+    </linearGradient>
+    <linearGradient id="glass9" x1="260" y1="110" x2="540" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6bb8ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#a8d8ff" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="ground9" x1="0" y1="340" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#eb5b2a" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#eb5b2a" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow9"><feGaussianBlur stdDeviation="8" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <ellipse cx="400" cy="348" rx="340" ry="20" fill="url(#ground9)"/>
+  <!-- G9 bigger SUV body -->
+  <path d="M100,285 L120,260 L165,225 L230,170 L270,148 L340,128 L430,124 L520,128 L570,148 L610,175 L650,215 L680,250 L710,278 L718,290 L718,305 L695,314 L640,318 L190,318 L140,314 L112,308 L98,300 L98,290 Z" fill="url(#body9)" stroke="#3a3e4c" stroke-width="1"/>
+  <!-- Window -->
+  <path d="M250,175 L300,148 L430,140 L520,148 L560,170 L575,195 L570,212 L245,212 Z" fill="url(#glass9)" stroke="#4a5060" stroke-width="0.5"/>
+  <line x1="410" y1="142" x2="405" y2="212" stroke="#3a3e4c" stroke-width="1.5"/>
+  <!-- Headlights thin strip -->
+  <rect x="105" y="262" width="35" height="6" rx="3" fill="#fff" opacity="0.8" filter="url(#glow9)"/>
+  <!-- Taillights strip -->
+  <rect x="710" y="268" width="10" height="22" rx="3" fill="#ff3e3e" opacity="0.8" filter="url(#glow9)"/>
+  <!-- Light bar across back -->
+  <line x1="640" y1="280" x2="718" y2="280" stroke="#ff3e3e" stroke-width="2" opacity="0.3"/>
+  <!-- Wheels -->
+  <circle cx="215" cy="318" r="35" fill="#14161c" stroke="#3a3e4c" stroke-width="2"/>
+  <circle cx="215" cy="318" r="22" fill="#1c2028" stroke="#4a4e5c" stroke-width="1"/>
+  <circle cx="215" cy="318" r="13" fill="#252830" stroke="#555" stroke-width="0.5"/>
+  <circle cx="630" cy="318" r="35" fill="#14161c" stroke="#3a3e4c" stroke-width="2"/>
+  <circle cx="630" cy="318" r="22" fill="#1c2028" stroke="#4a4e5c" stroke-width="1"/>
+  <circle cx="630" cy="318" r="13" fill="#252830" stroke="#555" stroke-width="0.5"/>
+  <!-- Roof line highlight -->
+  <path d="M270,148 L340,128 L430,124 L520,128 L570,148" fill="none" stroke="#5a5e6c" stroke-width="0.8" opacity="0.5"/>
+  <!-- Side chrome strip -->
+  <path d="M120,268 L718,268" fill="none" stroke="#eb5b2a" stroke-width="1" opacity="0.35"/>
+  <text x="400" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#eb5b2a" opacity="0.7" letter-spacing="8">XPENG G9</text>
+</svg>

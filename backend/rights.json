@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "brand": "小鹏",
+    "version": "2026-03-28",
+    "fetched_at": "2026-03-28T00:00:00.000Z",
+    "source_url": "https://www.xiaopeng.com/news/company_news/5450.html",
+    "disclaimer": "本数据为公开网页抓取快照整理，仅用于面试演示；活动、金融方案与补贴变化较快，请以小鹏官网与门店最新政策为准。"
+  },
+  "items": [
+    {
+      "id": "snapshot-rights-national",
+      "brand": "全国",
+      "city": "全国",
+      "title": "公开快照示例：全国基础权益/活动",
+      "summary": "用于演示“权益入口/提示信息”在主链路中不中断。具体权益细则以官网与门店最新政策为准。",
+      "validFrom": "2026-03-01",
+      "validTo": "2026-03-31",
+      "source_url": "https://www.xiaopeng.com/news/company_news/5450.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28"
+    },
+    {
+      "id": "snapshot-rights-g6",
+      "brand": "小鹏",
+      "city": "全国",
+      "title": "公开快照示例：G6 相关活动/金融信息入口",
+      "summary": "用于演示权益信息联动试驾与门店咨询。具体政策以官网与门店为准。",
+      "validFrom": "2026-03-01",
+      "validTo": "2026-03-31",
+      "source_url": "https://www.xiaopeng.com/g6_2026/configuration.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28"
+    },
+    {
+      "id": "snapshot-rights-g9",
+      "brand": "小鹏",
+      "city": "全国",
+      "title": "公开快照示例：G9 相关活动/金融信息入口",
+      "summary": "用于演示权益信息联动试驾与门店咨询。具体政策以官网与门店为准。",
+      "validFrom": "2026-03-01",
+      "validTo": "2026-03-31",
+      "source_url": "https://www.xiaopeng.com/g9_2026/configuration.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28"
+    }
+  ]
+}

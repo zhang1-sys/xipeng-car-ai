@@ -1,0 +1,38 @@
+{
+  "name": "xpeng-car-ai-backend",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "20.x"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "smoke": "node smoke-test.js",
+    "eval": "node eval-runner.js",
+    "reset-demo-data": "node scripts/reset-demo-data.js",
+    "db:health": "node db/check-db-health.js",
+    "db:schema": "node db/apply-schema.js",
+    "db:pgvector:up": "node db/pgvector-local.js up",
+    "db:pgvector:down": "node db/pgvector-local.js down",
+    "db:pgvector:ps": "node db/pgvector-local.js ps",
+    "db:pgvector:logs": "node db/pgvector-local.js logs",
+    "db:export-sql": "node db/export-file-data-to-sql.js",
+    "db:import-file-storage": "node db/import-file-storage-to-postgres.js",
+    "knowledge:bootstrap-local": "node knowledge/bootstrap-service-knowledge-sources.js",
+    "knowledge:prepare": "node knowledge/prepare-knowledge-chunks.js",
+    "knowledge:import": "node knowledge/import-knowledge-to-postgres.js",
+    "knowledge:embed": "node knowledge/embed-knowledge-in-postgres.js",
+    "knowledge:search": "node knowledge/search-knowledge-postgres.js",
+    "knowledge:verify": "node knowledge/verify-knowledge-pipeline.js"
+  },
+  "dependencies": {
+    "@alicloud/pop-core": "^1.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "openai": "^4.73.0",
+    "pg": "^8.13.1"
+  }
+}

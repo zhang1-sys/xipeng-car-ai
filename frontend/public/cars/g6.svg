@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2a2d35"/>
+      <stop offset="50%" stop-color="#3d4150"/>
+      <stop offset="100%" stop-color="#1a1c22"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="260" y1="120" x2="540" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6bb8ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#a8d8ff" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="340" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#eb5b2a" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#eb5b2a" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="light-l" x1="80" y1="220" x2="130" y2="240">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#cde4ff" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="light-r" x1="720" y1="220" x2="670" y2="240">
+      <stop offset="0%" stop-color="#ff3e3e" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ff6b6b" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+  <!-- Ground reflection -->
+  <ellipse cx="400" cy="345" rx="320" ry="18" fill="url(#ground)"/>
+  <!-- SUV Body - G6 sleek profile -->
+  <path d="M110,280 L130,260 L180,230 L240,180 L280,155 L340,135 L420,130 L500,135 L550,155 L590,180 L630,220 L660,250 L690,275 L700,285 L700,300 L680,310 L630,315 L580,318 L200,318 L150,315 L120,310 L105,305 L105,290 Z" fill="url(#body)" stroke="#4a4e5c" stroke-width="1"/>
+  <!-- Window -->
+  <path d="M260,180 L310,152 L420,145 L500,152 L540,172 L560,195 L555,210 L250,210 Z" fill="url(#glass)" stroke="#5a6070" stroke-width="0.5"/>
+  <!-- Window divider -->
+  <line x1="400" y1="148" x2="395" y2="210" stroke="#4a4e5c" stroke-width="1.5"/>
+  <!-- Headlights -->
+  <ellipse cx="120" cy="265" rx="18" ry="8" fill="url(#light-l)" filter="url(#glow)"/>
+  <!-- Taillights -->
+  <rect x="692" y="265" width="12" height="20" rx="3" fill="url(#light-r)" filter="url(#glow)"/>
+  <!-- Wheels -->
+  <circle cx="220" cy="315" r="32" fill="#1a1c22" stroke="#3d4150" stroke-width="2"/>
+  <circle cx="220" cy="315" r="20" fill="#2a2d35" stroke="#555" stroke-width="1"/>
+  <circle cx="220" cy="315" r="12" fill="#333" stroke="#666" stroke-width="0.5"/>
+  <circle cx="620" cy="315" r="32" fill="#1a1c22" stroke="#3d4150" stroke-width="2"/>
+  <circle cx="620" cy="315" r="20" fill="#2a2d35" stroke="#555" stroke-width="1"/>
+  <circle cx="620" cy="315" r="12" fill="#333" stroke="#666" stroke-width="0.5"/>
+  <!-- Roof line highlight -->
+  <path d="M280,155 L340,135 L420,130 L500,135 L550,155" fill="none" stroke="#6a6e7c" stroke-width="0.8" opacity="0.6"/>
+  <!-- Side accent line -->
+  <path d="M130,270 L700,270" fill="none" stroke="#eb5b2a" stroke-width="1.2" opacity="0.4"/>
+  <!-- XPeng badge -->
+  <text x="400" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#eb5b2a" opacity="0.7" letter-spacing="8">XPENG G6</text>
+</svg>

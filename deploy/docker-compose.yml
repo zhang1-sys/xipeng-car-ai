@@ -1,0 +1,63 @@
+# 在 deploy 目录执行：docker compose up -d --build
+# 先复制 env.example 为 .env，并填好 PUBLIC_ORIGIN、ALLOWED_ORIGINS、OPS_ACCESS_TOKEN。
+# 默认生产基线走 Postgres 持久化；file storage 仅保留给本地 dev fallback。
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xpeng_car_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-xpeng}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xpeng_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xpeng} -d ${POSTGRES_DB:-xpeng_car_ai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+    environment:
+      NODE_ENV: production
+      STORAGE_PROVIDER: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xpeng}:${POSTGRES_PASSWORD:-xpeng_dev_password}@db:5432/${POSTGRES_DB:-xpeng_car_ai}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-${PUBLIC_ORIGIN}}
+      OPS_ACCESS_TOKEN: ${OPS_ACCESS_TOKEN}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_ORIGIN}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - api
+
+volumes:
+  pgvector_data:

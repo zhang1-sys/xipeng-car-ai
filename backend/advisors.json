@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "lastReviewed": "2026-03-26",
+    "notes": "Sample advisor roster for local assignment and CRM-ready payload generation."
+  },
+  "advisors": [
+    {
+      "id": "gz-xp-01",
+      "name": "陈顾问",
+      "title": "Senior Sales Advisor",
+      "team": "Guangzhou Growth",
+      "brand": "小鹏",
+      "city": "广州",
+      "storeIds": ["xp-gz-hq-tech"],
+      "phone": "400-783-6688",
+      "channel": "phone"
+    },
+    {
+      "id": "sz-xp-01",
+      "name": "林顾问",
+      "title": "Sales Advisor",
+      "team": "Shenzhen Growth",
+      "brand": "小鹏",
+      "city": "深圳",
+      "storeIds": ["xp-sz-guangming"],
+      "phone": "400-783-6688",
+      "channel": "phone"
+    },
+    {
+      "id": "sh-xp-01",
+      "name": "周顾问",
+      "title": "Sales Advisor",
+      "team": "Shanghai Growth",
+      "brand": "小鹏",
+      "city": "上海",
+      "storeIds": ["xp-sh-pudong"],
+      "phone": "400-783-6688",
+      "channel": "phone"
+    },
+    {
+      "id": "national-xp-01",
+      "name": "AI转化池",
+      "title": "Lead Dispatcher",
+      "team": "National Inside Sales",
+      "brand": "小鹏",
+      "city": "全国",
+      "phone": "400-783-6688",
+      "channel": "dispatcher"
+    }
+  ]
+}

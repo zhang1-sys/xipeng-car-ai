@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <defs>
+    <linearGradient id="bodym03" x1="0" y1="0" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2a3540"/>
+      <stop offset="50%" stop-color="#384858"/>
+      <stop offset="100%" stop-color="#1c2830"/>
+    </linearGradient>
+    <linearGradient id="glassm03" x1="280" y1="150" x2="520" y2="215" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6bb8ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#a8d8ff" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="groundm03" x1="0" y1="340" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00c98d" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#00c98d" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glowm03"><feGaussianBlur stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <ellipse cx="400" cy="342" rx="310" ry="14" fill="url(#groundm03)"/>
+  <!-- M03 compact sedan - youthful -->
+  <path d="M105,295 L120,278 L155,252 L220,218 L290,188 L340,172 L410,165 L485,168 L545,178 L600,200 L645,228 L685,260 L710,285 L712,298 L710,308 L692,314 L640,318 L185,318 L138,314 L112,310 L100,305 Z" fill="url(#bodym03)" stroke="#3a4858" stroke-width="1"/>
+  <!-- Window -->
+  <path d="M300,195 L355,176 L420,170 L490,176 L535,195 L548,212 L548,228 L292,228 L292,212 Z" fill="url(#glassm03)" stroke="#4a5868" stroke-width="0.5"/>
+  <line x1="420" y1="171" x2="418" y2="228" stroke="#3a4858" stroke-width="1.2"/>
+  <!-- Headlights -->
+  <rect x="110" y="278" width="32" height="5" rx="2.5" fill="#fff" opacity="0.85" filter="url(#glowm03)"/>
+  <!-- Taillights -->
+  <rect x="706" y="275" width="7" height="16" rx="2" fill="#ff3e3e" opacity="0.8" filter="url(#glowm03)"/>
+  <!-- Wheels -->
+  <circle cx="210" cy="318" r="28" fill="#1c2830" stroke="#3a4858" stroke-width="2"/>
+  <circle cx="210" cy="318" r="17" fill="#2a3540" stroke="#4a5868" stroke-width="1"/>
+  <circle cx="210" cy="318" r="9" fill="#304050" stroke="#556" stroke-width="0.5"/>
+  <circle cx="625" cy="318" r="28" fill="#1c2830" stroke="#3a4858" stroke-width="2"/>
+  <circle cx="625" cy="318" r="17" fill="#2a3540" stroke="#4a5868" stroke-width="1"/>
+  <circle cx="625" cy="318" r="9" fill="#304050" stroke="#556" stroke-width="0.5"/>
+  <!-- Side accent -->
+  <path d="M120,280 L712,280" fill="none" stroke="#00c98d" stroke-width="1" opacity="0.35"/>
+  <text x="400" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#00c98d" opacity="0.7" letter-spacing="6">MONA M03</text>
+</svg>

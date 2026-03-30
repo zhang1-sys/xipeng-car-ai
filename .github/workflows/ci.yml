@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+
+      - name: Run backend smoke test
+        env:
+          OPENAI_API_KEY: test-key
+          OPENAI_MODEL: gpt-4o-mini
+        run: npm run smoke
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Type-check frontend
+        run: npx tsc --noEmit --incremental false
+
+      - name: Build frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          CI: "1"
+          NEXT_STANDALONE: "1"
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
+        run: npm run build

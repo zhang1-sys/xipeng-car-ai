@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <defs>
+    <linearGradient id="bodyp7" x1="0" y1="0" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e2a3a"/>
+      <stop offset="50%" stop-color="#2c3a4e"/>
+      <stop offset="100%" stop-color="#141c28"/>
+    </linearGradient>
+    <linearGradient id="glassp7" x1="280" y1="140" x2="520" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6bb8ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#a8d8ff" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="groundp7" x1="0" y1="340" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b8bff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#3b8bff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glowp7"><feGaussianBlur stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <ellipse cx="400" cy="342" rx="330" ry="16" fill="url(#groundp7)"/>
+  <!-- P7i sedan - low sleek profile -->
+  <path d="M90,295 L110,278 L145,255 L200,225 L280,185 L330,168 L400,160 L480,162 L540,170 L600,195 L650,225 L695,260 L720,285 L722,298 L720,308 L700,314 L650,318 L180,318 L130,314 L105,310 L90,305 Z" fill="url(#bodyp7)" stroke="#3a4558" stroke-width="1"/>
+  <!-- Window - sportier angle -->
+  <path d="M295,190 L350,170 L420,164 L490,170 L540,190 L555,210 L555,225 L285,225 L285,210 Z" fill="url(#glassp7)" stroke="#4a5a6e" stroke-width="0.5"/>
+  <line x1="420" y1="165" x2="418" y2="225" stroke="#3a4558" stroke-width="1.2"/>
+  <!-- Headlights - thin modern strip -->
+  <rect x="95" y="280" width="40" height="4" rx="2" fill="#fff" opacity="0.9" filter="url(#glowp7)"/>
+  <!-- Taillights - connected strip -->
+  <rect x="714" y="278" width="8" height="18" rx="2" fill="#ff3e3e" opacity="0.85" filter="url(#glowp7)"/>
+  <!-- Wheels -->
+  <circle cx="205" cy="318" r="30" fill="#141c28" stroke="#3a4558" stroke-width="2"/>
+  <circle cx="205" cy="318" r="18" fill="#1e2a3a" stroke="#4a5a6e" stroke-width="1"/>
+  <circle cx="205" cy="318" r="10" fill="#253040" stroke="#556" stroke-width="0.5"/>
+  <circle cx="635" cy="318" r="30" fill="#141c28" stroke="#3a4558" stroke-width="2"/>
+  <circle cx="635" cy="318" r="18" fill="#1e2a3a" stroke="#4a5a6e" stroke-width="1"/>
+  <circle cx="635" cy="318" r="10" fill="#253040" stroke="#556" stroke-width="0.5"/>
+  <!-- Roof line -->
+  <path d="M330,168 L400,160 L480,162 L540,170" fill="none" stroke="#4a5a6e" stroke-width="0.7" opacity="0.5"/>
+  <!-- Side accent -->
+  <path d="M110,280 L722,280" fill="none" stroke="#3b8bff" stroke-width="1" opacity="0.3"/>
+  <text x="400" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#3b8bff" opacity="0.7" letter-spacing="8">XPENG P7i</text>
+</svg>

@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "brand": "小鹏",
+    "version": "2026-03-28",
+    "fetched_at": "2026-03-28T00:00:00.000Z",
+    "source_url": "https://www.xiaopeng.com/",
+    "disclaimer": "本数据为公开网页抓取的本地快照，仅用于面试演示。价格、配置与权益请以小鹏官网与门店最新信息为准。"
+  },
+  "models": [
+    {
+      "key": "G6",
+      "brand": "小鹏",
+      "displayName": "小鹏 G6",
+      "source_url": "https://www.xiaopeng.com/g6_2026/configuration.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28",
+      "variants": [
+        { "name": "580 长续航 Pro", "price": 17.99, "highlight": "更适合城市通勤和预算敏感用户" },
+        { "name": "755 超长续航 Max", "price": 19.99, "highlight": "更适合重视续航和智驾体验的用户" },
+        { "name": "700 四驱 Performance", "price": 22.99, "highlight": "更适合在意动力和四驱稳定性的用户" }
+      ],
+      "colors": [
+        { "name": "星云白", "premium": 0 },
+        { "name": "新月银", "premium": 0 },
+        { "name": "暗夜黑", "premium": 0 },
+        { "name": "星际绿", "premium": 0.2 }
+      ],
+      "interiors": [
+        { "name": "深空黑内饰", "premium": 0 },
+        { "name": "气宇灰内饰", "premium": 0 }
+      ],
+      "packages": [
+        { "name": "XNGP 智驾包", "price": 2, "desc": "更适合看重高阶辅助驾驶与长期 OTA 能力的用户" },
+        { "name": "舒享升级包", "price": 0.8, "desc": "更适合家庭和高频通勤场景" },
+        { "name": "丹拿音响包", "price": 0.6, "desc": "更适合看重座舱沉浸感的用户" }
+      ]
+    },
+    {
+      "key": "G9",
+      "brand": "小鹏",
+      "displayName": "小鹏 G9",
+      "source_url": "https://www.xiaopeng.com/g9_2026/configuration.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28",
+      "variants": [
+        { "name": "650 Pro", "price": 26.39, "highlight": "更适合大空间家庭用户" },
+        { "name": "702 Max", "price": 29.99, "highlight": "更适合重视旗舰智驾和舒适性的用户" },
+        { "name": "650 四驱 Max", "price": 31.99, "highlight": "更适合看重动力和全场景能力的用户" }
+      ],
+      "colors": [
+        { "name": "云母白", "premium": 0 },
+        { "name": "暗夜黑", "premium": 0 },
+        { "name": "星际绿", "premium": 0.2 },
+        { "name": "深海蓝", "premium": 0.2 }
+      ],
+      "interiors": [
+        { "name": "曜石黑内饰", "premium": 0 },
+        { "name": "月影咖内饰", "premium": 0.5 },
+        { "name": "暖阳棕内饰", "premium": 0.5 }
+      ],
+      "packages": [
+        { "name": "XNGP 智驾包", "price": 2, "desc": "适合希望把智驾能力一步到位的用户" },
+        { "name": "豪华舒享包", "price": 1.5, "desc": "适合长途和家庭出行场景" },
+        { "name": "空气悬架包", "price": 1, "desc": "适合重视底盘质感和高级感的用户" }
+      ]
+    },
+    {
+      "key": "P7i",
+      "brand": "小鹏",
+      "displayName": "小鹏 P7i",
+      "source_url": "https://www.xiaopeng.com/p7i.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28",
+      "variants": [
+        { "name": "702 Pro", "price": 22.39, "highlight": "更适合颜值与通勤并重用户" },
+        { "name": "702 Max", "price": 24.99, "highlight": "更适合重视智驾和长续航的用户" },
+        { "name": "610 Performance", "price": 26.99, "highlight": "更适合重视性能的用户" }
+      ],
+      "colors": [
+        { "name": "星暮白", "premium": 0 },
+        { "name": "暗夜黑", "premium": 0 },
+        { "name": "新月银", "premium": 0 },
+        { "name": "星际绿", "premium": 0.2 }
+      ],
+      "interiors": [
+        { "name": "曜石黑内饰", "premium": 0 },
+        { "name": "月影灰内饰", "premium": 0 }
+      ],
+      "packages": [
+        { "name": "XNGP 智驾包", "price": 2, "desc": "适合把高阶辅助驾驶放在第一优先级的用户" },
+        { "name": "舒享升级包", "price": 0.8, "desc": "适合日常通勤和舒适取向" }
+      ]
+    },
+    {
+      "key": "MONA M03",
+      "brand": "小鹏",
+      "displayName": "小鹏 MONA M03",
+      "source_url": "https://www.xiaopeng.com/m03/configuration.html",
+      "fetched_at": "2026-03-28T00:00:00.000Z",
+      "version": "2026-03-28",
+      "variants": [
+        { "name": "515 长续航 Plus", "price": 11.98, "highlight": "更适合作为入门纯电首选" },
+        { "name": "620 长续航 Max", "price": 14.98, "highlight": "更适合预算有限但看重续航的用户" },
+        { "name": "620 智驾 Max", "price": 15.58, "highlight": "更适合想体验智驾的年轻用户" }
+      ],
+      "colors": [
+        { "name": "月光白", "premium": 0 },
+        { "name": "星云灰", "premium": 0 },
+        { "name": "天青蓝", "premium": 0.15 },
+        { "name": "星际绿", "premium": 0.15 }
+      ],
+      "interiors": [
+        { "name": "曜石黑内饰", "premium": 0 },
+        { "name": "轻雾灰内饰", "premium": 0 }
+      ],
+      "packages": [
+        { "name": "智驾升级包", "price": 1.5, "desc": "适合把智能体验放在前面的用户" },
+        { "name": "舒享包", "price": 0.5, "desc": "适合更注重座舱舒适性的用户" }
+      ]
+    }
+  ]
+}

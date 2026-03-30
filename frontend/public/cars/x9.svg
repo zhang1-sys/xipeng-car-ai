@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <defs>
+    <linearGradient id="bodyx9" x1="0" y1="0" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22262e"/>
+      <stop offset="50%" stop-color="#323842"/>
+      <stop offset="100%" stop-color="#181c22"/>
+    </linearGradient>
+    <linearGradient id="glassx9" x1="240" y1="100" x2="560" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6bb8ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#a8d8ff" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="groundx9" x1="0" y1="340" x2="800" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glowx9"><feGaussianBlur stdDeviation="8" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <ellipse cx="400" cy="352" rx="350" ry="22" fill="url(#groundx9)"/>
+  <!-- X9 MPV - tall, boxy, spacious -->
+  <path d="M95,290 L110,268 L140,240 L190,195 L240,160 L290,138 L370,125 L460,122 L540,125 L590,138 L630,160 L665,195 L700,240 L720,268 L728,290 L728,310 L710,318 L660,322 L180,322 L130,318 L105,312 L90,305 L90,295 Z" fill="url(#bodyx9)" stroke="#3a3e4c" stroke-width="1"/>
+  <!-- Big MPV windows -->
+  <path d="M260,165 L320,142 L450,135 L540,142 L580,165 L598,195 L598,218 L252,218 L252,195 Z" fill="url(#glassx9)" stroke="#4a5060" stroke-width="0.5"/>
+  <line x1="380" y1="137" x2="378" y2="218" stroke="#3a3e4c" stroke-width="1.2"/>
+  <line x1="475" y1="140" x2="473" y2="218" stroke="#3a3e4c" stroke-width="1.2"/>
+  <!-- Headlights - bold strip -->
+  <rect x="100" y="270" width="38" height="7" rx="3.5" fill="#fff" opacity="0.85" filter="url(#glowx9)"/>
+  <!-- Taillights - wide strip -->
+  <rect x="720" y="272" width="10" height="22" rx="3" fill="#ff3e3e" opacity="0.85" filter="url(#glowx9)"/>
+  <!-- Connected light bar -->
+  <line x1="660" y1="285" x2="728" y2="285" stroke="#ff3e3e" stroke-width="2" opacity="0.25"/>
+  <!-- Wheels - bigger for MPV -->
+  <circle cx="205" cy="322" r="36" fill="#181c22" stroke="#3a3e4c" stroke-width="2"/>
+  <circle cx="205" cy="322" r="23" fill="#22262e" stroke="#4a4e5c" stroke-width="1"/>
+  <circle cx="205" cy="322" r="14" fill="#2a2e36" stroke="#555" stroke-width="0.5"/>
+  <circle cx="640" cy="322" r="36" fill="#181c22" stroke="#3a3e4c" stroke-width="2"/>
+  <circle cx="640" cy="322" r="23" fill="#22262e" stroke="#4a4e5c" stroke-width="1"/>
+  <circle cx="640" cy="322" r="14" fill="#2a2e36" stroke="#555" stroke-width="0.5"/>
+  <!-- Side accent -->
+  <path d="M110,275 L728,275" fill="none" stroke="#8b5cf6" stroke-width="1" opacity="0.35"/>
+  <text x="400" y="75" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#8b5cf6" opacity="0.7" letter-spacing="8">XPENG X9</text>
+</svg>

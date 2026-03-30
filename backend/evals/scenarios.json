@@ -1,0 +1,448 @@
+[
+  {
+    "id": "rec-budget-city",
+    "title": "预算和城市约束下的购车推荐",
+    "group": "recommendation",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "预算15万，广州通勤，推荐一款智能 SUV",
+      "mode": "recommendation"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "recommendation"
+      },
+      "requiredPaths": [
+        "reply",
+        "sessionId",
+        "requestId",
+        "structured.cars",
+        "structured.next_steps",
+        "agent.stage",
+        "agent.nextActions"
+      ],
+      "arrayMinLength": {
+        "structured.cars": 1,
+        "structured.next_steps": 1,
+        "agent.nextActions": 1
+      }
+    }
+  },
+  {
+    "id": "rec-family-space",
+    "title": "家庭空间需求推荐",
+    "group": "recommendation",
+    "critical": false,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "家里有孩子，想买一台空间大、城市通勤方便、周末还能自驾的新能源车，最好智能化别太弱",
+      "mode": "recommendation"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "recommendation"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.cars",
+        "agent.stage",
+        "agent.confidence"
+      ],
+      "arrayMinLength": {
+        "structured.cars": 1
+      }
+    }
+  },
+  {
+    "id": "cmp-g6-g9",
+    "title": "小鹏 G6 与 G9 对比",
+    "group": "comparison",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "小鹏 G6 和小鹏 G9 怎么选",
+      "mode": "comparison"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "comparison"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.dimensions",
+        "agent.stage",
+        "agent.nextActions"
+      ],
+      "arrayMinLength": {
+        "structured.dimensions": 1,
+        "agent.nextActions": 1
+      }
+    }
+  },
+  {
+    "id": "cmp-competitor-boundary",
+    "title": "竞品对比可提及但转化动作仍收口到小鹏",
+    "group": "comparison",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "小鹏 G6 和小鹏 G9 怎么选？你也可以顺带参考一下 Tesla Model Y，但后续我只看小鹏试驾和门店。",
+      "mode": "comparison"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "comparison"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.dimensions",
+        "agent.stage",
+        "agent.nextActions"
+      ],
+      "arrayMinLength": {
+        "structured.dimensions": 1,
+        "agent.nextActions": 1
+      },
+      "includesAny": {
+        "reply": ["小鹏 G6", "小鹏 G9", "小鹏"],
+        "agent.nextActions": ["试驾 小鹏 G6 与 小鹏 G9", "继续补充：最重要的比较场景", "从家用和带娃场景再比一次", "把最在意的 2-3 个维度单独拎出来确认"]
+      }
+    }
+  },
+  {
+    "id": "conv-non-xpeng-boundary",
+    "title": "非小鹏试驾请求必须被边界拦截",
+    "group": "conversion",
+    "critical": true,
+    "route": "/api/test-drive",
+    "method": "POST",
+    "request": {
+      "name": "评测用户",
+      "phone": "13800138222",
+      "carModel": "Tesla Model Y",
+      "userCity": "广州",
+      "privacyConsent": true,
+      "contactConsent": true,
+      "remark": "我想预约特斯拉试驾"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "ok": false,
+        "routing.method": "xpeng_only_boundary",
+        "routing.inferredBrand": "特斯拉"
+      },
+      "requiredPaths": [
+        "requestId",
+        "message",
+        "routing.officialAppointmentUrl"
+      ],
+      "includesAny": {
+        "message": ["只支持小鹏", "小鹏车型", "小鹏试驾转化"],
+        "routing.officialAppointmentUrl": ["xiaopeng.com"]
+      }
+    }
+  },
+  {
+    "id": "cmp-body-type",
+    "title": "车身形式与场景权衡",
+    "group": "comparison",
+    "critical": false,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "SUV 和轿车在家用、通勤和长途场景下分别有什么取舍",
+      "mode": "comparison"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "comparison"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.dimensions"
+      ],
+      "arrayMinLength": {
+        "structured.dimensions": 1
+      }
+    }
+  },
+  {
+    "id": "svc-winter-range",
+    "title": "冬季续航服务建议",
+    "group": "service",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "冬天续航掉得快，日常应该怎么用车",
+      "mode": "service"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "service"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.steps",
+        "agent.stage"
+      ],
+      "arrayMinLength": {
+        "structured.steps": 1
+      }
+    }
+  },
+  {
+    "id": "svc-ota-boundary",
+    "title": "OTA 问题处理与边界提示",
+    "group": "service",
+    "critical": false,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "车机 OTA 之后偶尔卡顿，应该先怎么排查",
+      "mode": "service"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "service"
+      },
+      "requiredPaths": [
+        "reply",
+        "structured.steps"
+      ],
+      "arrayMinLength": {
+        "structured.steps": 1
+      }
+    }
+  },
+  {
+    "id": "svc-high-risk-handoff",
+    "title": "高风险事故场景应升级到官方或人工",
+    "group": "service",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "出事故后高压系统报警，还能继续开吗，怎么处理",
+      "mode": "service"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "service",
+        "agent.stageCode": "handoff",
+        "agent.routing.escalation.needed": true
+      },
+      "requiredPaths": [
+        "reply",
+        "agent.statusReason",
+        "agent.transition.nextStageCandidates",
+        "agent.routing.escalation.reason"
+      ],
+      "includesAny": {
+        "reply": ["官方售后", "道路救援", "官方渠道"],
+        "agent.statusReason": ["转人工", "线下渠道", "风险"],
+        "agent.transition.nextStageCandidates": ["handoff"]
+      }
+    }
+  },
+  {
+    "id": "svc-battery-damage-handoff",
+    "title": "电池包受损场景不能按普通服务知识回答",
+    "group": "service",
+    "critical": true,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "电池包受损还能不能继续充电？",
+      "mode": "service"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "service",
+        "agent.stageCode": "handoff",
+        "agent.routing.escalation.needed": true
+      },
+      "requiredPaths": [
+        "reply",
+        "agent.statusReason",
+        "agent.routing.escalation.reason"
+      ],
+      "includesAny": {
+        "reply": ["官方售后", "官方渠道", "道路救援", "不建议继续"],
+        "agent.statusReason": ["转人工", "线下渠道", "风险"]
+      }
+    }
+  },
+  {
+    "id": "rec-stock-offer-boundary",
+    "title": "现车优惠锁单问题必须暴露结构化数据边界",
+    "group": "recommendation",
+    "critical": false,
+    "route": "/api/chat",
+    "method": "POST",
+    "request": {
+      "message": "广州门店这周末有没有现车和优惠，能不能直接给我锁单",
+      "mode": "recommendation"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "recommendation",
+        "agent.routing.requiredDataSource": "structured"
+      },
+      "requiredPaths": [
+        "reply",
+        "agent.stageCode",
+        "agent.statusReason"
+      ],
+      "includesAny": {
+        "reply": ["官网/门店为准", "官网", "门店为准", "询价"],
+        "agent.stageCode": ["convert", "recommend"]
+      }
+    }
+  },
+  {
+    "id": "cfg-g6-entry",
+    "title": "配置器入口与配置推进",
+    "group": "configurator",
+    "critical": true,
+    "route": "/api/configurator",
+    "method": "POST",
+    "request": {
+      "message": "我想配一台适合城市通勤的小鹏 G6，先从版本开始"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "configurator"
+      },
+      "requiredPaths": [
+        "reply",
+        "sessionId",
+        "stage",
+        "agent.stage",
+        "agent.checklist",
+        "agent.nextActions"
+      ],
+      "arrayMinLength": {
+        "agent.checklist": 1,
+        "agent.nextActions": 1
+      }
+    }
+  },
+  {
+    "id": "cfg-auto-plan",
+    "title": "配置器自动推荐配置单",
+    "group": "configurator",
+    "critical": false,
+    "route": "/api/configurator",
+    "method": "POST",
+    "request": {
+      "message": "帮我给小鹏 G6 直接出一版适合通勤的默认配置方案"
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "mode": "configurator"
+      },
+      "requiredPaths": [
+        "reply",
+        "agent.stage",
+        "agent.nextActions"
+      ],
+      "arrayMinLength": {
+        "agent.nextActions": 1
+      }
+    }
+  },
+  {
+    "id": "conv-test-drive",
+    "title": "试驾转化与 CRM-ready 字段",
+    "group": "conversion",
+    "critical": true,
+    "route": "/api/test-drive",
+    "method": "POST",
+    "request": {
+      "name": "评测用户",
+      "phone": "13800138111",
+      "carModel": "小鹏 G6",
+      "userCity": "广州",
+      "privacyConsent": true,
+      "contactConsent": true
+    },
+    "assertions": {
+      "status": 200,
+      "equals": {
+        "ok": true
+      },
+      "requiredPaths": [
+        "requestId",
+        "routing.leadScore",
+        "routing.leadStage",
+        "routing.nextBestActions",
+        "crm.payloadVersion",
+        "crm.syncReady",
+        "crmSync.id",
+        "crmSync.status"
+      ],
+      "arrayMinLength": {
+        "routing.nextBestActions": 1
+      }
+    }
+  },
+  {
+    "id": "conv-crm-ack",
+    "title": "CRM 闭环：acknowledged 回执（骨架）",
+    "group": "conversion",
+    "critical": true,
+    "route": "/api/crm/ack",
+    "method": "POST",
+    "request": {
+      "externalLeadId": "eval-crm-ack-001",
+      "status": "acknowledged",
+      "message": "eval ack"
+    },
+    "assertions": {
+      "status": 404,
+      "equals": {
+        "ok": false,
+        "error": "crm_outbox_not_found"
+      }
+    }
+  },
+  {
+    "id": "conv-crm-callback",
+    "title": "CRM 闭环：callback synced 回执（骨架）",
+    "group": "conversion",
+    "critical": true,
+    "route": "/api/crm/callback",
+    "method": "POST",
+    "request": {
+      "externalLeadId": "eval-crm-callback-001",
+      "status": "synced",
+      "message": "eval callback"
+    },
+    "assertions": {
+      "status": 404,
+      "equals": {
+        "ok": false,
+        "error": "crm_outbox_not_found"
+      }
+    }
+  }
+]

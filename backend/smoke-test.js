@@ -1,0 +1,541 @@
+const fs = require("fs");
+const path = require("path");
+const { spawn } = require("child_process");
+const { Client } = require("pg");
+
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+const PORT = Number(process.env.SMOKE_PORT || 3101);
+const BASE = `http://127.0.0.1:${PORT}`;
+const USE_EXISTING_SERVER = process.env.SMOKE_USE_EXISTING_SERVER === "true";
+const OPS_ACCESS_TOKEN = String(process.env.OPS_ACCESS_TOKEN || "smoke-test-token").trim();
+let serverProcess = null;
+const SMOKE_CHECKS = [
+  "health",
+  "config_status",
+  "agent_readiness",
+  "agent_eval",
+  "knowledge_status",
+  "business_data_status",
+  "crm_outbox",
+  "crm_sync_run",
+  "crm_acknowledged",
+  "crm_synced_callback",
+  "crm_failed_dead_letter",
+  "observability",
+  "recommendation",
+  "comparison",
+  "service",
+  "forced_mode",
+  "multi_turn_memory",
+  "stream_chat",
+  "configurator",
+  "conversation_replay",
+  "session_storage_masking",
+  "privacy_validation",
+  "test_drive_success",
+  "lead_intelligence",
+  "crm_payload",
+];
+
+function smokeResultPath() {
+  return path.join(__dirname, "data", "smoke-results.json");
+}
+
+function writeSmokeResult(payload) {
+  const filePath = smokeResultPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForHealth(timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const health = await fetch(`${BASE}/health`).then((res) => res.json());
+      if (health.ok === true) return;
+    } catch {
+      /* retry */
+    }
+    await sleep(300);
+  }
+  throw new Error("smoke server failed to become healthy");
+}
+
+async function startServer() {
+  if (USE_EXISTING_SERVER) {
+    await waitForHealth();
+    return;
+  }
+
+  serverProcess = spawn(process.execPath, ["server.js"], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      OPS_ACCESS_TOKEN,
+    },
+    stdio: "inherit",
+  });
+
+  await waitForHealth();
+}
+
+async function stopServer() {
+  if (!serverProcess || serverProcess.killed) return;
+
+  serverProcess.kill();
+  await Promise.race([
+    new Promise((resolve) => serverProcess.once("exit", resolve)),
+    sleep(3000),
+  ]);
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...buildOpsHeaders(),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await response.json();
+  return { response, json };
+}
+
+async function postSse(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...buildOpsHeaders(),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const events = [];
+  let eventType = "";
+
+  for (const line of text.split("\n")) {
+    if (line.startsWith("event:")) {
+      eventType = line.slice(6).trim();
+      continue;
+    }
+    if (!line.startsWith("data:")) {
+      continue;
+    }
+
+    try {
+      events.push({
+        event: eventType || "message",
+        data: JSON.parse(line.slice(5).trim()),
+      });
+    } catch {
+      events.push({
+        event: eventType || "message",
+        data: null,
+      });
+    }
+
+    eventType = "";
+  }
+
+  return { response, events };
+}
+
+async function queryPostgresCounts() {
+  if (String(process.env.STORAGE_PROVIDER || "").trim().toLowerCase() !== "postgres") {
+    return null;
+  }
+  if (!String(process.env.DATABASE_URL || "").trim()) {
+    throw new Error("postgres smoke requires DATABASE_URL");
+  }
+
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: ["1", "true", "require"].includes(String(process.env.DATABASE_SSL || "").trim().toLowerCase())
+      ? { rejectUnauthorized: false }
+      : false,
+  });
+
+  await client.connect();
+  try {
+    const leads = await client.query("SELECT COUNT(*)::int AS count FROM leads");
+    const crmOutbox = await client.query("SELECT COUNT(*)::int AS count FROM crm_outbox");
+    return {
+      leads: Number(leads.rows[0]?.count || 0),
+      crmOutbox: Number(crmOutbox.rows[0]?.count || 0),
+    };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function buildOpsHeaders() {
+  if (!OPS_ACCESS_TOKEN) {
+    return {};
+  }
+
+  return {
+    "X-Ops-Token": OPS_ACCESS_TOKEN,
+    "X-Ops-Actor": "smoke-test",
+  };
+}
+
+function assertExpectedModeOrTimeout(result, expectedMode) {
+  if (result.json.mode === expectedMode) {
+    return "expected";
+  }
+
+  const reply = String(result.json.reply || "");
+  const isTimeoutFallback =
+    result.json.mode === "general" && (/timeout/i.test(reply) || /瓒呮椂/.test(reply));
+
+  assert(
+    isTimeoutFallback,
+    `${expectedMode} request returned unexpected mode: ${String(result.json.mode || "unknown")}`
+  );
+  return "timeout_fallback";
+}
+
+async function main() {
+  const dbCountsBefore = await queryPostgresCounts();
+  await startServer();
+
+  const health = await fetch(`${BASE}/health`).then((res) => res.json());
+  assert(health.ok === true, "health check failed");
+  assert(typeof health.service?.sessions === "number", "health sessions missing");
+  assert(typeof health.service?.storesLoaded === "number", "health storesLoaded missing");
+  assert(typeof health.service?.sessionTtlMs === "number", "health sessionTtlMs missing");
+  assert(typeof health.limits?.chat?.max === "number", "health chat limit missing");
+  assert(typeof health.crmSync?.counts?.total === "number", "health crmSync missing");
+  assert(typeof health.config?.counts?.total === "number", "health config summary missing");
+
+  const configStatus = await fetch(`${BASE}/api/ops/config-status`, {
+    headers: buildOpsHeaders(),
+  }).then((res) => res.json());
+  assert(typeof configStatus.ok === "boolean", "config status ok missing");
+  assert(Array.isArray(configStatus.checks), "config status checks missing");
+  assert(
+    configStatus.checks.some((item) => item.id === "ops_access_token"),
+    "config status ops_access_token check missing"
+  );
+  assert(
+    configStatus.checks.some((item) => item.id === "retention_policy"),
+    "config status retention_policy check missing"
+  );
+
+  const readiness = await fetch(`${BASE}/api/agent/readiness`, {
+    headers: buildOpsHeaders(),
+  }).then((res) => res.json());
+  assert(typeof readiness.overallScore === "number", "readiness overallScore missing");
+  assert(Array.isArray(readiness.dimensions), "readiness dimensions missing");
+  assert(Array.isArray(readiness.milestones), "readiness milestones missing");
+  assert(typeof readiness.versions?.promptVersion === "string", "readiness promptVersion missing");
+  assert(
+    typeof readiness.businessDataStatus?.stores?.count === "number",
+    "readiness business data missing"
+  );
+
+  const evalReport = await fetch(`${BASE}/api/agent/eval`).then((res) => res.json());
+  assert(typeof evalReport.versions?.policyVersion === "string", "eval policyVersion missing");
+  assert(typeof evalReport.dataset?.scenarioCount === "number", "eval scenarioCount missing");
+  assert(Array.isArray(evalReport.qualityGates), "eval quality gates missing");
+
+  const knowledgeStatus = await fetch(`${BASE}/api/knowledge/status`).then((res) => res.json());
+  assert(typeof knowledgeStatus.provider === "string", "knowledge status provider missing");
+  assert(
+    typeof knowledgeStatus.generated?.records === "number",
+    "knowledge status generated records missing"
+  );
+  assert(
+    typeof knowledgeStatus.embedding?.configured === "boolean",
+    "knowledge status embedding flag missing"
+  );
+
+  const businessData = await fetch(`${BASE}/api/business-data/status`).then((res) => res.json());
+  assert(typeof businessData.version === "string", "business data version missing");
+  assert(
+    typeof businessData.sources?.catalog?.count === "number",
+    "business data catalog count missing"
+  );
+
+  const recommendation = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u9884\u7b9715\u4e07\uff0c\u5e7f\u5dde\u901a\u52e4\uff0c\u63a8\u8350\u4e00\u6b3e\u667a\u80fd SUV",
+    mode: "recommendation",
+  });
+  assert(recommendation.response.ok, "recommendation request failed");
+  const recommendationStatus = assertExpectedModeOrTimeout(recommendation, "recommendation");
+  assert(typeof recommendation.json.requestId === "string", "recommendation requestId missing");
+  if (recommendationStatus === "expected") {
+    assert(Array.isArray(recommendation.json.structured?.cars), "recommendation cars missing");
+    assert(
+      Array.isArray(recommendation.json.structured?.next_steps),
+      "recommendation next_steps missing"
+    );
+  }
+
+  const comparison = await postJson(`${BASE}/api/chat`, {
+    message: "小鹏 G6 和小鹏 G9 怎么选",
+    mode: "comparison",
+  });
+  assert(comparison.response.ok, "comparison request failed");
+  const comparisonStatus = assertExpectedModeOrTimeout(comparison, "comparison");
+  if (comparisonStatus === "expected") {
+    assert(Array.isArray(comparison.json.structured?.dimensions), "comparison dimensions missing");
+  }
+
+  const service = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u51ac\u5929\u7eed\u822a\u6389\u5f97\u5feb\uff0c\u65e5\u5e38\u5e94\u8be5\u600e\u4e48\u7528\u8f66",
+    mode: "service",
+  });
+  assert(service.response.ok, "service request failed");
+  const serviceStatus = assertExpectedModeOrTimeout(service, "service");
+  if (serviceStatus === "expected") {
+    assert(Array.isArray(service.json.structured?.steps), "service steps missing");
+  }
+
+  const forcedComparison = await postJson(`${BASE}/api/chat`, {
+    message: "Please compare options for a 200k city commuter SUV.",
+    mode: "comparison",
+  });
+  assert(forcedComparison.response.ok, "forced comparison request failed");
+  assertExpectedModeOrTimeout(forcedComparison, "comparison");
+
+  const firstTurn = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u9884\u7b9720\u4e07\u5185\uff0c\u4e3b\u8981\u57ce\u5e02\u901a\u52e4\uff0c\u60f3\u8981\u667a\u80fd\u5316\u597d\u4e00\u70b9\u7684 SUV",
+    mode: "recommendation",
+  });
+  const sessionId = firstTurn.json.sessionId;
+  const secondTurn = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u6211\u5728\u5e7f\u5dde\uff0c\u5bb6\u91cc\u80fd\u88c5\u5145\u7535\u6869",
+    sessionId,
+    mode: "recommendation",
+  });
+  assert(secondTurn.response.ok, "second turn request failed");
+  assertExpectedModeOrTimeout(secondTurn, "recommendation");
+
+  const piiTurn = await postJson(`${BASE}/api/chat`, {
+    message: "My phone is 13800138000 and my email is demo@example.com",
+    sessionId,
+  });
+  assert(piiTurn.response.ok, "pii turn request failed");
+
+  const stream = await postSse(`${BASE}/api/chat/stream`, {
+    message:
+      "\u5e2e\u6211\u603b\u7ed3\u4e00\u4e0b\u9002\u5408\u57ce\u5e02\u901a\u52e4\u7684\u667a\u80fd SUV \u600e\u4e48\u9009",
+    sessionId,
+  });
+  assert(stream.response.ok, "stream request failed");
+  const doneEvent = stream.events.find((item) => item.event === "done");
+  assert(doneEvent, "stream endpoint did not emit done event");
+  assert(typeof doneEvent.data?.sessionId === "string", "stream done event missing sessionId");
+
+  const configurator = await postJson(`${BASE}/api/configurator`, {
+    message:
+      "\u6211\u60f3\u914d\u4e00\u53f0\u9002\u5408\u901a\u52e4\u7684\u5c0f\u9e4f G6\uff0c\u5148\u4ece\u7248\u672c\u5f00\u59cb",
+    sessionId,
+  });
+  assert(configurator.response.ok, "configurator request failed");
+  assert(typeof configurator.json.reply === "string", "configurator reply missing");
+  assert(typeof configurator.json.sessionId === "string", "configurator sessionId missing");
+
+  const invalidLead = await postJson(`${BASE}/api/test-drive`, {
+    name: "\u5f20\u4e09",
+    phone: "13800138000",
+    carModel: "\u5c0f\u9e4f G6",
+    userCity: "\u5e7f\u5dde",
+    privacyConsent: false,
+  });
+  assert(invalidLead.response.status === 400, "privacy validation should fail");
+
+  const validLead = await postJson(`${BASE}/api/test-drive`, {
+    name: "\u5f20\u4e09",
+    phone: "13800138000",
+    carModel: "\u5c0f\u9e4f G6",
+    userCity: "\u5e7f\u5dde",
+    privacyConsent: true,
+    contactConsent: true,
+  });
+  assert(validLead.response.ok, "valid lead submit failed");
+  assert(validLead.json.ok === true, "valid lead missing ok");
+  assert(typeof validLead.json.requestId === "string", "valid lead requestId missing");
+  assert(typeof validLead.json.routing?.leadScore === "number", "valid lead score missing");
+  assert(typeof validLead.json.routing?.leadStage === "string", "valid lead stage missing");
+  assert(
+    Array.isArray(validLead.json.routing?.nextBestActions),
+    "valid lead next best actions missing"
+  );
+  assert(typeof validLead.json.crm?.payloadVersion === "string", "valid lead crm payload missing");
+  assert(typeof validLead.json.crm?.syncReady === "boolean", "valid lead crm syncReady missing");
+  assert(typeof validLead.json.crmSync?.id === "string", "valid lead crm sync state missing");
+  assert(typeof validLead.json.crmSync?.status === "string", "valid lead crm sync status missing");
+
+  const dbCountsAfterLead = await queryPostgresCounts();
+  if (dbCountsBefore && dbCountsAfterLead) {
+    assert(dbCountsAfterLead.leads >= dbCountsBefore.leads + 1, "postgres lead record was not persisted");
+    assert(
+      dbCountsAfterLead.crmOutbox >= dbCountsBefore.crmOutbox + 1,
+      "postgres crm_outbox record was not persisted"
+    );
+  }
+
+  const crmOutbox = await fetch(`${BASE}/api/crm/outbox`, {
+    headers: buildOpsHeaders(),
+  }).then((res) => res.json());
+  assert(Array.isArray(crmOutbox.items), "crm outbox items missing");
+  assert(typeof crmOutbox.summary?.counts?.total === "number", "crm outbox summary missing");
+  assert(
+    crmOutbox.items.some((item) => item.id === validLead.json.crmSync.id),
+    "crm outbox does not contain submitted lead"
+  );
+
+  const crmRun = await postJson(`${BASE}/api/crm/sync/run`, { limit: 2, force: true });
+  assert(crmRun.response.ok, "crm sync run failed");
+  assert(typeof crmRun.json.syncEnabled === "boolean", "crm sync run summary missing");
+
+  const ack = await postJson(`${BASE}/api/crm/ack`, {
+    outboxId: validLead.json.crmSync.id,
+    status: "acknowledged",
+    message: "smoke ack",
+  });
+  assert(ack.response.ok, "crm ack request failed");
+  assert(ack.json.ok === true, "crm ack response missing ok");
+  assert(ack.json.item?.status === "acknowledged", "crm ack did not move to acknowledged");
+
+  const callback = await postJson(`${BASE}/api/crm/callback`, {
+    outboxId: validLead.json.crmSync.id,
+    status: "synced",
+    message: "smoke callback",
+    result: "synced",
+  });
+  assert(callback.response.ok, "crm callback request failed");
+  assert(callback.json.ok === true, "crm callback response missing ok");
+  assert(callback.json.item?.status === "synced", "crm callback did not move to synced");
+
+  const failLead = await postJson(`${BASE}/api/test-drive`, {
+    name: "smoke_fail",
+    phone: "13800138001",
+    carModel: "小鹏 G6",
+    userCity: "广州",
+    privacyConsent: true,
+    contactConsent: true,
+  });
+  assert(failLead.response.ok, "dead-letter lead submit failed");
+  assert(typeof failLead.json.crmSync?.id === "string", "dead-letter lead crmSync missing");
+
+  const failAck = await postJson(`${BASE}/api/crm/ack`, {
+    outboxId: failLead.json.crmSync.id,
+    status: "failed",
+    message: "smoke failure",
+  });
+  assert(failAck.response.ok, "crm fail ack request failed");
+  assert(failAck.json.item?.status === "failed", "crm fail ack did not move to failed");
+
+  const deadLetter = await postJson(`${BASE}/api/crm/callback`, {
+    outboxId: failLead.json.crmSync.id,
+    status: "dead_letter",
+    message: "smoke dead letter",
+    result: "dead_letter",
+  });
+  assert(deadLetter.response.ok, "crm dead-letter callback request failed");
+  assert(deadLetter.json.item?.status === "dead_letter", "crm callback did not move to dead_letter");
+  assert(
+    typeof deadLetter.json.item?.deadLetterAt === "string" || deadLetter.json.item?.deadLetterAt === null,
+    "dead_letter missing deadLetterAt"
+  );
+
+  const replay = await fetch(
+    `${BASE}/api/debug/conversation-events?limit=20&sessionId=${encodeURIComponent(sessionId)}`,
+    {
+      headers: buildOpsHeaders(),
+    }
+  ).then((res) => res.json());
+  const replayText = JSON.stringify(replay.items);
+  assert(Array.isArray(replay.items), "conversation replay items missing");
+  assert(replay.masked === true, "conversation replay should be masked by default");
+  assert(
+    replay.items.some(
+      (item) =>
+        item.route === "/api/chat" ||
+        item.route === "/api/chat/stream" ||
+        item.route === "/api/configurator"
+    ),
+    "conversation replay missing expected routes"
+  );
+  assert(!replayText.includes("13800138000"), "conversation replay leaked raw phone");
+  assert(!replayText.includes("demo@example.com"), "conversation replay leaked raw email");
+  assert(replayText.includes("138****8000"), "conversation replay missing masked phone");
+  assert(replayText.includes("de***@example.com"), "conversation replay missing masked email");
+
+  const auditLog = await fetch(`${BASE}/api/ops/audit-log?limit=20`, {
+    headers: buildOpsHeaders(),
+  }).then((res) => res.json());
+  assert(Array.isArray(auditLog.items), "audit log items missing");
+  const auditActions = auditLog.items.map((item) => item.action);
+  assert(auditActions.includes("config_status.read"), "audit log missing config status access");
+  assert(auditActions.includes("agent_readiness.read"), "audit log missing readiness access");
+  assert(auditActions.includes("crm_outbox.read"), "audit log missing outbox access");
+  assert(auditActions.includes("crm_sync.run"), "audit log missing crm sync access");
+  assert(
+    auditActions.includes("conversation_replay.read"),
+    "audit log missing conversation replay access"
+  );
+
+  const sessionsFile = path.join(__dirname, "data", "sessions.json");
+  if (fs.existsSync(sessionsFile)) {
+    const sessionsText = fs.readFileSync(sessionsFile, "utf8");
+    assert(!sessionsText.includes("13800138000"), "session storage leaked raw phone");
+    assert(!sessionsText.includes("demo@example.com"), "session storage leaked raw email");
+    assert(sessionsText.includes("138****8000"), "session storage missing masked phone");
+    assert(sessionsText.includes("de***@example.com"), "session storage missing masked email");
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        checks: SMOKE_CHECKS,
+      },
+      null,
+      2
+    )
+  );
+  writeSmokeResult({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    checks: SMOKE_CHECKS,
+  });
+}
+
+(async () => {
+  try {
+    await main();
+  } catch (error) {
+    writeSmokeResult({
+      ok: false,
+      generatedAt: new Date().toISOString(),
+      message: error.message,
+    });
+    console.error(JSON.stringify({ ok: false, message: error.message }, null, 2));
+    process.exitCode = 1;
+  } finally {
+    await stopServer();
+  }
+})();
