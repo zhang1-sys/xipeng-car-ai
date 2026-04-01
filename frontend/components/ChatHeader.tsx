@@ -55,7 +55,7 @@ export function ChatHeader({
             </div>
             <div>
               <p className="text-[11px] font-semibold tracking-[0.28em] text-[#ba5a2d]">小鹏购车助手</p>
-              <p className="mt-1 text-sm text-ink-600">公开快照演示，不连接内部系统。</p>
+              <p className="mt-1 text-sm text-ink-700">车型推荐、对比和配置都可以从这里开始。</p>
             </div>
           </div>
 

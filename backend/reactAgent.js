@@ -252,19 +252,54 @@ function buildAgentTrace(trace) {
     .slice(0, 8);
 }
 
+function describeReActToolAction(toolName) {
+  switch (toolName) {
+    case "recall_memory":
+      return "正在检查当前会话里是否已有可复用线索";
+    case "search_catalog":
+      return "正在筛选符合条件的车型资料";
+    case "compare_catalog":
+      return "正在整理车型对比信息";
+    case "find_stores":
+      return "正在匹配离你更近的门店";
+    case "search_service_knowledge":
+      return "正在检索相关服务知识和处理方案";
+    default:
+      return `正在调用 ${toolName}`;
+  }
+}
+
+function describeReActToolObservation(toolName, summary) {
+  const cleaned = String(summary || "").trim();
+  if (cleaned) return cleaned;
+  switch (toolName) {
+    case "recall_memory":
+      return "已读取当前会话里已有的条件线索";
+    case "search_catalog":
+      return "已拿到候选车型资料";
+    case "compare_catalog":
+      return "已拿到车型对比结果";
+    case "find_stores":
+      return "已完成附近门店匹配";
+    case "search_service_knowledge":
+      return "已命中相关服务知识";
+    default:
+      return `${toolName} 已完成`;
+  }
+}
+
 async function runReActTurn({ client, model, session, message, storesPayload, onStep }) {
   const startTime = Date.now();
   const trace = [];
   const toolResults = {};
   const baseMode = detectIntent(message);
+  updateSessionProfile(session, message);
   let routingPolicy = buildRoutingPolicy({
     mode: baseMode,
     stageCode: deriveAgentStageCodeForReActMode(baseMode),
     message,
     profile: session?.profile || {},
   });
-
-  updateSessionProfile(session, message);
 
   const historyMessages = (session.messages || []).slice(-12).map((item) => ({
     role: item.role,
@@ -310,7 +345,7 @@ async function runReActTurn({ client, model, session, message, storesPayload, on
 
     lastThought = parsed.thought || "";
     trace.push({ turn, thought: lastThought, action: parsed.action, final: !!parsed.final_answer });
-    if (onStep) onStep({ type: "thought", turn, thought: lastThought });
+    if (onStep && lastThought) onStep({ type: "think", turn, thought: lastThought });
 
     if (parsed.final_answer) {
       finalAnswer = parsed.final_answer;
@@ -337,7 +372,18 @@ async function runReActTurn({ client, model, session, message, storesPayload, on
       ]);
       toolResults[parsed.action] = toolResult.data;
       observation = `工具 ${parsed.action} 执行成功：${toolResult.summary}\n详细数据：${JSON.stringify(toolResult.data)}`;
-      if (onStep) onStep({ type: "action", turn, action: parsed.action, result: toolResult.summary });
+      if (onStep) {
+        onStep({
+          type: "act",
+          turn,
+          action: describeReActToolAction(parsed.action),
+        });
+        onStep({
+          type: "observe",
+          turn,
+          observation: describeReActToolObservation(parsed.action, toolResult.summary),
+        });
+      }
     } catch (err) {
       const fallback = resolveDeterministicFallback({
         failureType:
@@ -350,7 +396,18 @@ async function runReActTurn({ client, model, session, message, storesPayload, on
         policy: routingPolicy,
       });
       observation = `工具 ${parsed.action} 执行失败：${fallback.userHint}`;
-      if (onStep) onStep({ type: "error", turn, action: parsed.action, error: err.message });
+      if (onStep) {
+        onStep({
+          type: "act",
+          turn,
+          action: describeReActToolAction(parsed.action),
+        });
+        onStep({
+          type: "observe",
+          turn,
+          observation: fallback.userHint,
+        });
+      }
     }
 
     trace.push({ turn, observation });

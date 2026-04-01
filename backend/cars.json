@@ -8,14 +8,19 @@
     "priceMin": 11.98,
     "range": "CLTC 最高约 620km（视配置）",
     "rangeMin": 515,
-    "smart": "高（XNGP/智驾能力视版本）",
+    "smart": "高（城市通勤与基础智驾体验完整）",
     "energyType": "纯电",
     "seats": 5,
     "year": 2026,
     "source_url": "https://www.xiaopeng.com/m03.html",
-    "fetched_at": "2026-03-28T00:00:00.000Z",
-    "version": "2026-03-28",
-    "highlights": ["价格门槛低", "适合年轻用户首购", "续航覆盖通勤与周边出行", "支持继续进入配置器与试驾 CTA"]
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "价格门槛低",
+      "适合首购和年轻用户",
+      "更偏城市通勤",
+      "可继续进入配置器与试驾转化"
+    ]
   },
   {
     "brand": "小鹏",
@@ -31,15 +36,89 @@
     "seats": 5,
     "year": 2026,
     "source_url": "https://www.xiaopeng.com/g6_2026/configuration.html",
-    "fetched_at": "2026-03-28T00:00:00.000Z",
-    "version": "2026-03-28",
-    "highlights": ["家庭纯电 SUV", "通勤与周末出行兼顾", "适合进入版本/颜色/套件配置", "是首页主推配置器车型之一"]
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "家庭纯电 SUV",
+      "兼顾通勤与周末出行",
+      "配置器信息完整",
+      "适合与 P7、G9 做核心对比"
+    ]
+  },
+  {
+    "brand": "小鹏",
+    "name": "G7",
+    "image": "/cars/g6.svg",
+    "bodyType": "纯电 SUV",
+    "price": "19.58 万起（公开快照，实际以官网/门店为准）",
+    "priceMin": 19.58,
+    "range": "CLTC 最高约 702km（视配置）",
+    "rangeMin": 602,
+    "smart": "高（新一代智能化升级取向）",
+    "energyType": "纯电",
+    "seats": 5,
+    "year": 2026,
+    "source_url": "https://www.xiaopeng.com/",
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "新一代 SUV 产品线",
+      "智能化表达更鲜明",
+      "适合和 G6 对比升级差异",
+      "配置器已补充对应车型图"
+    ]
+  },
+  {
+    "brand": "小鹏",
+    "name": "P7+",
+    "image": "/cars/p7i.svg",
+    "bodyType": "纯电轿跑",
+    "price": "18.68 万起（公开快照，实际以官网/门店为准）",
+    "priceMin": 18.68,
+    "range": "CLTC 最高约 725km（视配置）",
+    "rangeMin": 602,
+    "smart": "高（更强调设计与智能化升级）",
+    "energyType": "纯电",
+    "seats": 5,
+    "year": 2026,
+    "source_url": "https://www.xiaopeng.com/",
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "轿跑取向更强",
+      "适合看重设计和智能座舱",
+      "可与 G6、P7 做风格对比",
+      "已支持前端官方车图"
+    ]
+  },
+  {
+    "brand": "小鹏",
+    "name": "P7",
+    "image": "/cars/p7i.svg",
+    "bodyType": "纯电轿跑",
+    "price": "20.38 万起（公开快照，实际以官网/门店为准）",
+    "priceMin": 20.38,
+    "range": "CLTC 最高约 820km（视配置）",
+    "rangeMin": 625,
+    "smart": "高（设计与长续航取向）",
+    "energyType": "纯电",
+    "seats": 5,
+    "year": 2026,
+    "source_url": "https://www.xiaopeng.com/",
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "全新 P7 产品线",
+      "长续航与轿跑姿态更突出",
+      "适合和 G6 做空间与风格对比",
+      "修复后可被比较意图稳定识别"
+    ]
   },
   {
     "brand": "小鹏",
     "name": "P7i",
     "image": "/cars/p7i.svg",
-    "bodyType": "纯电轿车",
+    "bodyType": "纯电轿跑",
     "price": "22.39 万起（公开快照，实际以官网/门店为准）",
     "priceMin": 22.39,
     "range": "CLTC 最高约 702km（视配置）",
@@ -49,9 +128,14 @@
     "seats": 5,
     "year": 2026,
     "source_url": "https://www.xiaopeng.com/p7i.html",
-    "fetched_at": "2026-03-28T00:00:00.000Z",
-    "version": "2026-03-28",
-    "highlights": ["轿跑取向", "更适合看重颜值与驾驶感受", "可用于与 G6/G9 做对比", "适合演示推荐到对比的过渡"]
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "偏驾驶与颜值取向",
+      "适合和 G6、G9 做跨车身形式对比",
+      "仍可用于旧会话与旧别名兼容",
+      "保留历史车型匹配能力"
+    ]
   },
   {
     "brand": "小鹏",
@@ -67,9 +151,14 @@
     "seats": 5,
     "year": 2026,
     "source_url": "https://www.xiaopeng.com/g9_2026/configuration.html",
-    "fetched_at": "2026-03-28T00:00:00.000Z",
-    "version": "2026-03-28",
-    "highlights": ["大五座旗舰 SUV", "空间与舒适性更强", "适合家庭高端购车场景", "常作为与 G6 的对比对象"]
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "大五座旗舰 SUV",
+      "空间与舒适性更强",
+      "适合家庭高端购车场景",
+      "常用于与 G6 做梯度对比"
+    ]
   },
   {
     "brand": "小鹏",
@@ -85,8 +174,13 @@
     "seats": 7,
     "year": 2026,
     "source_url": "https://www.xiaopeng.com/x9.html",
-    "fetched_at": "2026-03-28T00:00:00.000Z",
-    "version": "2026-03-28",
-    "highlights": ["旗舰家用/商务 MPV", "适合多成员家庭", "适合作为高阶车型补充展示", "支持试驾与门店 CTA"]
+    "fetched_at": "2026-03-30T00:00:00.000Z",
+    "version": "2026-03-30",
+    "highlights": [
+      "旗舰家用/商务 MPV",
+      "适合多成员家庭",
+      "更偏多人舒适出行",
+      "支持试驾与门店转化"
+    ]
   }
 ]

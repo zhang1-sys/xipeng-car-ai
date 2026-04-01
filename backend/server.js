@@ -14,12 +14,12 @@ const {
   trimSessionMessages,
   runAgentTurn,
 } = require("./commercialAgent");
-const { runReActTurn } = require("./reactAgent");
 const { runConfiguratorTurn, getConfiguratorStage } = require("./configuratorAgent");
 const {
   inferBrandKeyword,
   inferBrandWithLLM,
   pickNearestStore,
+  haversineKm,
   listBrandsFromCatalog,
 } = require("./testDriveRouting");
 const { pickNearestByDrivingTime } = require("./amapRoute");
@@ -28,6 +28,7 @@ const { buildAgentReadinessReport } = require("./agentReadiness");
 const { buildLeadIntelligence } = require("./leadIntelligence");
 const { assignAdvisor, buildCrmPayload } = require("./advisorAssignment");
 const { buildEvalReport } = require("./evaluation");
+const { applySchema } = require("./db/apply-schema");
 const { getDatabaseUrl, query: postgresQuery } = require("./db/postgresClient");
 const {
   AGENT_RELEASE,
@@ -70,7 +71,7 @@ const leadsDir = path.join(__dirname, "data");
 const MAX_MESSAGES = 24;
 const MAX_PERSISTED_SESSIONS = 120;
 const CN_PHONE = /^1[3-9]\d{9}$/;
-const LLM_TIMEOUT_MS = Math.max(1000, Number(process.env.LLM_TIMEOUT_MS || 30000));
+const LLM_TIMEOUT_MS = Math.max(1000, Number(process.env.LLM_TIMEOUT_MS || 12000));
 const LLM_FAILURE_COOLDOWN_MS = Math.max(
   5000,
   Number(process.env.LLM_FAILURE_COOLDOWN_MS || 120000)
@@ -236,6 +237,124 @@ function effectiveTemperature(llm) {
   return moonshot ? 1.0 : 0.6;
 }
 
+function uniqueStrings(list) {
+  return [...new Set((Array.isArray(list) ? list : []).map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function normalizeClientProfileId(value) {
+  return String(value || "").trim().slice(0, 120);
+}
+
+function mergeLongTermProfile(base, updates) {
+  return {
+    ...(base || {}),
+    ...(updates || {}),
+    bodyTypes: uniqueStrings([...(base?.bodyTypes || []), ...(updates?.bodyTypes || [])]),
+    energyTypes: uniqueStrings([...(base?.energyTypes || []), ...(updates?.energyTypes || [])]),
+    priorities: uniqueStrings([...(base?.priorities || []), ...(updates?.priorities || [])]),
+    usage: uniqueStrings([...(base?.usage || []), ...(updates?.usage || [])]),
+    preferredBrands: uniqueStrings([
+      ...(base?.preferredBrands || []),
+      ...(updates?.preferredBrands || []),
+    ]),
+    excludedBrands: uniqueStrings([
+      ...(base?.excludedBrands || []),
+      ...(updates?.excludedBrands || []),
+    ]),
+    mentionedCars: uniqueStrings([...(base?.mentionedCars || []), ...(updates?.mentionedCars || [])]),
+    budget: pickFirstString(updates?.budget, base?.budget),
+    city: pickFirstString(updates?.city, base?.city),
+    charging: pickFirstString(updates?.charging, base?.charging),
+    seats: pickFirstString(updates?.seats, base?.seats),
+  };
+}
+
+function createUserProfileState(externalId = "") {
+  const now = new Date().toISOString();
+  return {
+    externalId,
+    profile: {},
+    memorySummary: "",
+    recentGoals: [],
+    lastMode: "service",
+    lastTaskMemory: {},
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function resolveCommercialModelChain(llm) {
+  const explicitFallbacks = uniqueStrings(
+    String(process.env.LLM_FALLBACK_MODELS || process.env.MOONSHOT_FALLBACK_MODELS || "")
+      .split(",")
+      .map((item) => item.trim())
+  );
+  if (explicitFallbacks.length) {
+    return uniqueStrings([llm.model, ...explicitFallbacks]);
+  }
+
+  const isMoonshot =
+    (llm.baseURL && String(llm.baseURL).includes("moonshot")) ||
+    /^(kimi|moonshot)/i.test(String(llm.model || ""));
+  if (!isMoonshot) return uniqueStrings([llm.model]);
+
+  if (llm.model === "kimi-k2.5") {
+    return uniqueStrings([llm.model, "kimi-k2-turbo-preview"]);
+  }
+  return uniqueStrings([llm.model, "moonshot-v1-auto"]);
+}
+
+async function runCommercialTurnWithFallback({
+  client,
+  llm,
+  session,
+  message,
+  forcedMode,
+  storesPayload,
+  onStep,
+}) {
+  const modelChain = resolveCommercialModelChain(llm);
+  let lastTurn = null;
+
+  for (let index = 0; index < modelChain.length; index += 1) {
+    const model = modelChain[index];
+    if (!model) continue;
+
+    if (index > 0 && typeof onStep === "function") {
+      onStep({
+        type: "reset",
+        observation: `主模型响应偏慢，已切换到更快模型 ${model}`,
+      });
+    }
+
+    const turn = await runAgentTurn({
+      client,
+      model,
+      temperature: effectiveTemperature(llm),
+      session,
+      message,
+      forcedMode,
+      storesPayload,
+      onStep,
+      suppressCompletionStep: index < modelChain.length - 1,
+    });
+    lastTurn = turn;
+
+    if (turn?.agent?.responseSource === "llm") {
+      return turn;
+    }
+  }
+
+  return lastTurn;
+}
+
 let openaiClient = null;
 let openaiClientKey = "";
 function getOpenAI() {
@@ -256,6 +375,8 @@ function getOpenAI() {
 
 /** @type {Map<string, ReturnType<typeof createSessionState>>} */
 const sessions = new Map();
+/** @type {Map<string, ReturnType<typeof createUserProfileState>>} */
+const userProfiles = new Map();
 const storage = createStorageProvider({
   dataDir: leadsDir,
   createSessionState,
@@ -389,6 +510,13 @@ function applyRateLimit(store, key, limit, windowMs, now = Date.now()) {
   };
 }
 
+function isInternalTestRequest(req) {
+  return (
+    isLocalIp(getClientIp(req)) &&
+    String(req.headers["x-internal-test"] || "").trim().toLowerCase() === "true"
+  );
+}
+
 function pruneSessions(now = Date.now()) {
   let removed = 0;
 
@@ -462,9 +590,146 @@ function isSupplementalProfileMessage(text) {
   );
 }
 
+/* function hasStrongConversionIntent(text) {
+  return /试驾|预约|门店|4s|4S|到店|最近.*店|哪家店|最快.*试驾|顾问|跟进|留资|联系我/.test(
+    String(text || "")
+  );
+}
+
+*/
+/* function hasStrongConversionIntent(text) {
+  return /试驾|预约|门店|4s|4S|到店|最近.*店|哪家店|最快.*试驾|顾问|跟进|留资|联系我/.test(
+    String(text || "")
+  );
+}
+
+*/
+function hasStrongConversionIntent(text) {
+  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u95e8\u5e97|4s|4S|\u5230\u5e97|\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u987e\u95ee|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211)/.test(
+    String(text || "")
+  );
+}
+
+function hasAdvisorFollowupIntent(text) {
+  return /(?:\u987e\u95ee|\u8ddf\u8fdb|\u8054\u7cfb\u6211|\u56de\u7535)/.test(String(text || ""));
+}
+
+function hasTestDriveIntent(text) {
+  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u5230\u5e97)/.test(String(text || ""));
+}
+
+function hasStrongServiceIntent(text) {
+  return /保养|充电|补能|保险|事故|OTA|车机|提车|交付|续航|电耗|家充|故障|异响|售后|救援/.test(
+    String(text || "")
+  );
+}
+
+function shouldShowRecommendationUi(text, turn) {
+  if (turn?.mode !== "recommendation") return false;
+  if (isExplicitComparisonTurnSafe(text)) return false;
+  if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return false;
+
+  const structured = turn?.structured;
+  const cars = Array.isArray(structured?.cars) ? structured.cars.filter(Boolean) : [];
+  if (!cars.length) return false;
+
+  return /(?:\u63a8\u8350|\u4e70\u8f66|\u9009\u8f66|\u8d2d\u8f66|\u9884\u7b97|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u503c\u5f97\u4e70|\u8f66\u578b|\u8bf4\u8bf4|\u4ecb\u7ecd|\u5bf9\u6bd4|\u6bd4\u8f83|\u54ea\u4e2a\u597d)/.test(
+    String(text || "")
+  );
+}
+
+function buildTurnUiHints(text, turn, session) {
+  const showRecommendationUi = shouldShowRecommendationUi(text, turn);
+  const taskType = String(session?.taskMemory?.activeTaskType || "");
+  const showAdvisorFollowupCard =
+    turn?.mode === "service" &&
+    (hasAdvisorFollowupIntent(text) || taskType === "advisor_followup");
+  const showTestDriveCard =
+    turn?.mode === "service" &&
+    !showAdvisorFollowupCard &&
+    (hasTestDriveIntent(text) || taskType === "test_drive");
+  const conversionCarName = pickFirstString(
+    session?.taskMemory?.focusedCar,
+    session?.profile?.mentionedCars?.[0],
+    session?.userProfile?.mentionedCars?.[0],
+    Array.isArray(turn?.structured?.cars) ? turn.structured.cars[0]?.name : ""
+  );
+  return {
+    showRecommendationCards: showRecommendationUi,
+    showRecommendationConversion: showRecommendationUi,
+    showServiceConversion: showTestDriveCard || showAdvisorFollowupCard,
+    showTestDriveCard,
+    showAdvisorFollowupCard,
+    conversionCarName: conversionCarName || undefined,
+  };
+}
+
+function normalizeTurnForExplicitComparison(text, turn) {
+  if (!turn || !isExplicitComparisonTurnSafe(text) || turn.mode === "comparison") {
+    return turn;
+  }
+
+  const cars = Array.isArray(turn?.structured?.cars)
+    ? turn.structured.cars.filter(Boolean).slice(0, 2)
+    : [];
+  if (cars.length < 2) return turn;
+
+  const intro =
+    turn.structured?.intro ||
+    `${cars[0].name} 和 ${cars[1].name} 的差异已经收敛到价格、续航和使用场景。`;
+  const conclusion =
+    turn.structured?.final_one_liner ||
+    turn.structured?.compare_note ||
+    `${cars[0].name} 更偏向一种取向，${cars[1].name} 更偏向另一种取向，建议按你的核心场景继续取舍。`;
+
+  return {
+    ...turn,
+    mode: "comparison",
+    structured: {
+      intro,
+      decision_focus: ["落地价差异", "续航差异", "适用场景"],
+      dimensions: [
+        { label: "价格", a: cars[0].price || "待确认", b: cars[1].price || "待确认" },
+        { label: "续航/能耗", a: cars[0].range || "待确认", b: cars[1].range || "待确认" },
+        { label: "智能化", a: cars[0].smart || "待确认", b: cars[1].smart || "待确认" },
+        { label: "适合人群", a: cars[0].bestFor || "待确认", b: cars[1].bestFor || "待确认" },
+      ],
+      conclusion,
+      next_steps: Array.isArray(turn.structured?.next_steps) ? turn.structured.next_steps : [],
+      followups: Array.isArray(turn.structured?.followups) ? turn.structured.followups : [],
+    },
+  };
+}
+
+function normalizeLocationToken(text) {
+  return String(text || "")
+    .replace(/特别行政区|自治区|自治州|地区|省/gu, "")
+    .replace(/[市区县]/gu, "")
+    .trim()
+    .toLowerCase();
+}
+
+function storeMatchesUserCity(store, userCity) {
+  const normalizedUserCity = normalizeLocationToken(userCity);
+  if (!normalizedUserCity) return false;
+
+  return [store?.city, store?.province, store?.district, store?.address]
+    .filter(Boolean)
+    .some((value) => {
+      const normalizedValue = normalizeLocationToken(value);
+      return (
+        normalizedValue === normalizedUserCity ||
+        normalizedValue.includes(normalizedUserCity) ||
+        normalizedUserCity.includes(normalizedValue)
+      );
+    });
+}
+
 function resolveTurnMode(text, session) {
   const detected = detectIntent(text);
   if (detected !== "service") return detected;
+  if (hasStrongConversionIntent(text)) return "service";
+  if (hasStrongServiceIntent(text)) return "service";
 
   const lastMode = session?.lastMode;
   if (
@@ -475,6 +740,40 @@ function resolveTurnMode(text, session) {
   }
 
   return detected;
+}
+
+function isExplicitComparisonTurnSafe(text) {
+  const raw = String(text || "").toLowerCase();
+  const matches =
+    raw.match(/\b(?:g6|g7|g9|x9|p7\+|p7i|p7|m03|mona\s*m03)\b/g) || [];
+  const uniqueCars = [...new Set(matches.map((item) => item.replace(/\s+/g, "")))];
+
+  return (
+    uniqueCars.length >= 2 ||
+    /(?:\bvs\b|\u5bf9\u6bd4|\u6bd4\u8f83|\u5dee\u5f02|\u533a\u522b|\u4ef7\u5dee|\u843d\u5730\u4ef7\u5dee|\u600e\u4e48\u9009|\u9009\u54ea\u4e2a|\u9009\u54ea\u6b3e)/i.test(
+      raw
+    )
+  );
+}
+
+function isExplicitComparisonTurn(text) {
+  return /(?:\bvs\b|对比|比较|差异|区别|价差|落地价差|怎么选|选哪个|选哪款)/i.test(
+    String(text || "")
+  );
+}
+
+function resolveRequestedChatMode(text, session, forcedMode) {
+  const hasForcedMode =
+    forcedMode === "recommendation" ||
+    forcedMode === "comparison" ||
+    forcedMode === "service";
+
+  if (!hasForcedMode) return resolveTurnMode(text, session);
+
+  if (isExplicitComparisonTurnSafe(text)) return "comparison";
+  if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return "service";
+
+  return forcedMode;
 }
 
 function shouldFallbackFromReActTurn(turn) {
@@ -638,11 +937,94 @@ function ensureDataDir() {
   ensureDir(leadsDir);
 }
 
+function getOrCreateUserProfile(externalId) {
+  const id = normalizeClientProfileId(externalId);
+  if (!id) return null;
+  if (!userProfiles.has(id)) {
+    userProfiles.set(id, createUserProfileState(id));
+  }
+  return userProfiles.get(id);
+}
+
+function attachUserProfileToSession(session, externalId) {
+  if (!session) return null;
+  const normalizedId = normalizeClientProfileId(externalId || session.clientProfileId);
+  if (!normalizedId) return null;
+
+  const userProfile = getOrCreateUserProfile(normalizedId);
+  if (!userProfile) return null;
+
+  session.clientProfileId = normalizedId;
+  session.userProfile = mergeLongTermProfile(userProfile.profile, session.userProfile || {});
+  session.userMemorySummary =
+    session.userMemorySummary || userProfile.memorySummary || session.memorySummary || "";
+  session.taskMemory = {
+    ...(userProfile.lastTaskMemory || {}),
+    ...(session.taskMemory || {}),
+  };
+  return userProfile;
+}
+
+function syncUserProfileFromSession(session) {
+  const normalizedId = normalizeClientProfileId(session?.clientProfileId);
+  if (!normalizedId || !session) return null;
+
+  const current = getOrCreateUserProfile(normalizedId);
+  if (!current) return null;
+
+  current.profile = mergeLongTermProfile(
+    mergeLongTermProfile(current.profile, session.userProfile || {}),
+    session.profile || {}
+  );
+  current.memorySummary =
+    session.userMemorySummary || session.memorySummary || current.memorySummary || "";
+  current.recentGoals = [...(current.recentGoals || []), session?.taskMemory?.goal || session?.turns?.slice(-1)[0]?.goal || ""]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(-12);
+  current.lastMode = session.lastMode || current.lastMode || "service";
+  current.lastTaskMemory = {
+    ...(current.lastTaskMemory || {}),
+    ...(session.taskMemory || {}),
+  };
+  current.updatedAt = new Date().toISOString();
+  if (!current.createdAt) current.createdAt = current.updatedAt;
+
+  session.userProfile = current.profile;
+  session.userMemorySummary = current.memorySummary;
+  return current;
+}
+
+async function loadPersistedUserProfiles() {
+  if (typeof storage.loadUserProfiles !== "function") {
+    return;
+  }
+
+  try {
+    const entries = await storage.loadUserProfiles();
+    for (const entry of entries) {
+      if (!entry?.id) continue;
+      userProfiles.set(entry.id, {
+        ...createUserProfileState(entry.id),
+        ...entry.state,
+      });
+    }
+    if (entries.length) {
+      console.log(`[memory] restored ${entries.length} user profiles via ${storage.kind}`);
+    }
+  } catch (error) {
+    console.warn("[memory] failed to restore user profiles:", error.message);
+  }
+}
+
 async function loadPersistedSessions() {
   try {
     const entries = await storage.loadSessions();
     for (const entry of entries) {
       if (!entry?.id) continue;
+      if (entry.state?.clientProfileId) {
+        attachUserProfileToSession(entry.state, entry.state.clientProfileId);
+      }
       sessions.set(entry.id, entry.state);
     }
     if (entries.length) {
@@ -655,6 +1037,9 @@ async function loadPersistedSessions() {
 
 async function persistSessions() {
   try {
+    if (typeof storage.persistUserProfiles === "function") {
+      await storage.persistUserProfiles([...userProfiles.entries()]);
+    }
     await storage.persistSessions([...sessions.entries()]);
   } catch (error) {
     console.warn("[session] failed to persist sessions:", error.message);
@@ -721,7 +1106,7 @@ async function runRetentionCleanup(reason = "scheduled") {
   }
 }
 
-function uniqueStrings(list) {
+function uniqueTelemetryStrings(list) {
   return [...new Set((Array.isArray(list) ? list : []).filter(Boolean).map((item) => String(item)))];
 }
 
@@ -729,7 +1114,7 @@ function extractTurnTelemetry(turn) {
   const traceTools = Array.isArray(turn?.meta?.trace)
     ? turn.meta.trace.map((item) => item?.action).filter(Boolean)
     : [];
-  const toolsUsed = uniqueStrings([
+  const toolsUsed = uniqueTelemetryStrings([
     ...(turn?.agent?.toolsUsed || []),
     ...(turn?.agent?.toolCalls || []),
     ...(turn?.meta?.toolCalls || []),
@@ -825,10 +1210,25 @@ app.get("/api/stores", (req, res) => {
     stores = stores.filter((store) => store.brand === brand);
   }
   if (city) {
+    const normalizedCity = String(city)
+      .replace(/特别行政区|自治区|自治州|地区|盟/g, "")
+      .replace(/[省市区县]/g, "")
+      .toLowerCase();
     stores = stores.filter(
       (store) =>
-        (store.city && store.city.includes(city)) ||
-        (store.province && store.province.includes(city))
+        [store.city, store.province, store.district, store.address]
+          .filter(Boolean)
+          .some((value) => {
+            const normalizedValue = String(value)
+              .replace(/特别行政区|自治区|自治州|地区|盟/g, "")
+              .replace(/[省市区县]/g, "")
+              .toLowerCase();
+            return (
+              normalizedValue === normalizedCity ||
+              normalizedValue.includes(normalizedCity) ||
+              normalizedCity.includes(normalizedValue)
+            );
+          })
     );
   }
   if (q) {
@@ -897,6 +1297,7 @@ app.get("/api/geocode/city", async (req, res) => {
 app.post("/api/test-drive", async (req, res) => {
   try {
     const requestId = getRequestId(req);
+    if (!isInternalTestRequest(req)) {
     const limitState = applyRateLimit(
       rateLimiters.testDrive,
       `${getClientIp(req)}:test-drive`,
@@ -909,6 +1310,7 @@ app.post("/api/test-drive", async (req, res) => {
         requestId,
         retryAfterSec: Math.ceil(limitState.retryAfterMs / 1000),
       });
+    }
     }
 
     const body = req.body || {};
@@ -1027,17 +1429,32 @@ app.post("/api/test-drive", async (req, res) => {
 
     if (!assignedStore) {
       const amapKey = String(process.env.AMAP_REST_KEY || "").trim();
-      const candidates = stores.filter(
+      const brandCandidates = stores.filter(
         (store) =>
           store.brand === assignedBrand &&
           typeof store.lat === "number" &&
           typeof store.lng === "number"
       );
+      const cityScopedCandidates = userCity
+        ? brandCandidates.filter((store) => storeMatchesUserCity(store, userCity))
+        : [];
+      const amapCandidates = hasGeo
+        ? (cityScopedCandidates.length ? cityScopedCandidates : brandCandidates)
+            .map((store) => ({
+              store,
+              distanceKm: haversineKm(userLat, userLng, store.lat, store.lng),
+            }))
+            .sort((a, b) => a.distanceKm - b.distanceKm)
+            .slice(0, cityScopedCandidates.length ? 6 : 8)
+            .map((item) => item.store)
+        : cityScopedCandidates.length
+          ? cityScopedCandidates
+          : brandCandidates;
 
       let picked = null;
-      if (hasGeo && amapKey && candidates.length) {
+      if (hasGeo && amapKey && amapCandidates.length) {
         try {
-          const amap = await pickNearestByDrivingTime(amapKey, userLat, userLng, candidates);
+          const amap = await pickNearestByDrivingTime(amapKey, userLat, userLng, amapCandidates);
           if (amap?.store) {
             picked = {
               store: amap.store,
@@ -1205,6 +1622,16 @@ app.post("/api/test-drive", async (req, res) => {
     const displayStoreSummary = assignedStore
       ? `已匹配门店「${assignedStore.name}」`
       : `当前库中暂无「${assignedBrand}」可匹配门店`;
+    const routingSummary =
+      routingMethod === "amap_driving"
+        ? "，并按驾车时间优先分配最近门店"
+        : routingMethod === "geo"
+          ? "，并按定位直线距离优先分配最近门店"
+          : routingMethod === "city"
+            ? "，并按你填写的城市优先分配门店"
+            : routingMethod === "manual"
+              ? "，已按你手动选择的门店提交"
+              : "";
     const displayDistanceSummary =
       distanceKm != null
         ? routingMethod === "amap_driving"
@@ -1217,7 +1644,7 @@ app.post("/api/test-drive", async (req, res) => {
     res.json({
       requestId,
       ok: true,
-      message: `Demo 已记录预约信息（mock 流程，不触发真实顾问接单），${displayStoreSummary}${displayDistanceSummary}${displayTimeSummary}。如需真实预约，请前往官方预约页。`,
+      message: `Demo 已记录预约信息（mock 流程，不触发真实顾问接单），${displayStoreSummary}${routingSummary}${displayDistanceSummary}${displayTimeSummary}。如需真实预约，请前往官方预约页。`,
       routing: {
         inferredBrand: assignedBrand,
         inferenceSource,
@@ -1262,6 +1689,7 @@ app.post("/api/test-drive", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const requestId = getRequestId(req);
+    if (!isInternalTestRequest(req)) {
     const limitState = applyRateLimit(
       rateLimiters.chat,
       `${getClientIp(req)}:chat`,
@@ -1275,8 +1703,14 @@ app.post("/api/chat", async (req, res) => {
         retryAfterSec: Math.ceil(limitState.retryAfterMs / 1000),
       });
     }
+    }
 
-    const { message, sessionId: incomingSession, mode: forcedMode } = req.body || {};
+    const {
+      message,
+      sessionId: incomingSession,
+      mode: forcedMode,
+      clientProfileId: incomingClientProfileId,
+    } = req.body || {};
     const text = typeof message === "string" ? message.trim() : "";
     if (!text) {
       return res.status(400).json({ error: "message 不能为空。", requestId });
@@ -1288,54 +1722,41 @@ app.post("/api/chat", async (req, res) => {
       "chat"
     );
     const session = sessions.get(sessionId);
-    const hasForcedMode =
-      forcedMode === "recommendation" ||
-      forcedMode === "comparison" ||
-      forcedMode === "service";
+    attachUserProfileToSession(session, incomingClientProfileId);
+    const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
     const mode =
-      forcedMode === "recommendation" ||
-      forcedMode === "comparison" ||
-      forcedMode === "service"
-        ? forcedMode
-        : resolveTurnMode(text, session);
+      hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
+        ? "service"
+        : requestedMode;
 
     const client = getOpenAI();
     const storesPayload = readStoresPayload();
-    let turn =
-      hasForcedMode || !client
-        ? await runAgentTurn({
+    const rawTurn =
+      client && llm.apiKey
+        ? await runCommercialTurnWithFallback({
             client,
-            model: client && llm.apiKey ? llm.model : "",
-            temperature: effectiveTemperature(llm),
+            llm,
             session,
             message: text,
             forcedMode: mode,
             storesPayload,
           })
-        : await runReActTurn({
-            client,
-            model: llm.apiKey ? llm.model : "",
+        : await runAgentTurn({
+            client: null,
+            model: "",
+            temperature: effectiveTemperature(llm),
             session,
             message: text,
+            forcedMode: mode,
             storesPayload,
           });
+    const turn = normalizeTurnForExplicitComparison(text, rawTurn);
 
-    if (client && !hasForcedMode && shouldFallbackFromReActTurn(turn)) {
-      turn = await runAgentTurn({
-        client: null,
-        model: "",
-        temperature: effectiveTemperature(llm),
-        session,
-        message: text,
-        forcedMode: mode,
-        storesPayload,
-      });
-    }
-
-    if (client && llm.apiKey) {
+    if (client && llm.apiKey && turn?.agent?.responseSource === "llm") {
       markLLMSuccess();
     }
 
+    syncUserProfileFromSession(session);
     session.messages = trimSession(session.messages);
     await persistSessions();
     await persistConversationEvent({
@@ -1380,6 +1801,7 @@ app.post("/api/chat", async (req, res) => {
       sessionId,
       structured: turn.structured,
       agent: turn.agent,
+      uiHints: buildTurnUiHints(text, turn, session),
       requestId,
     });
   } catch (error) {
@@ -1394,13 +1816,19 @@ app.post("/api/chat", async (req, res) => {
 // ─── SSE 流式对话端点（ReAct Agent）─────────────────────────────
 app.post("/api/chat/stream", async (req, res) => {
   const requestId = getRequestId(req);
-  const { message, sessionId: clientSessionId } = req.body || {};
+  const {
+    message,
+    sessionId: clientSessionId,
+    mode: forcedMode,
+    clientProfileId: incomingClientProfileId,
+  } = req.body || {};
   const text = typeof message === "string" ? message.trim() : "";
   if (!text) {
     return res.status(400).json({ error: "message is required", requestId });
   }
 
   // 获取或创建 session
+  if (!isInternalTestRequest(req)) {
   const limitState = applyRateLimit(
     rateLimiters.chat,
     `${getClientIp(req)}:chat`,
@@ -1414,24 +1842,37 @@ app.post("/api/chat/stream", async (req, res) => {
       retryAfterSec: Math.ceil(limitState.retryAfterMs / 1000),
     });
   }
+  }
   const sessionId = getOrCreateSession(
     typeof clientSessionId === "string" ? clientSessionId : null,
     "chat"
   );
   const session = sessions.get(sessionId);
+  attachUserProfileToSession(session, incomingClientProfileId);
+  const hasForcedMode =
+    forcedMode === "recommendation" ||
+    forcedMode === "comparison" ||
+    forcedMode === "service";
+  const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
+  const resolvedMode =
+    hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
+      ? "service"
+      : requestedMode;
 
   // 建立 SSE 连接
-  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   function sendEvent(eventType, data) {
-    res.write(`event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+    res.write(Buffer.from(`event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`, "utf8"));
   }
 
   async function finishStreamTurn(result, options = {}) {
+    const finalResult = normalizeTurnForExplicitComparison(text, result);
+    syncUserProfileFromSession(session);
     session.messages = trimSession(session.messages);
     await persistSessions();
     await persistConversationEvent({
@@ -1439,28 +1880,28 @@ app.post("/api/chat/stream", async (req, res) => {
       requestId,
       sessionId,
       userMessage: text,
-      assistantReply: result.reply,
-      mode: result.mode,
-      structured: result.structured,
-      agent: result.agent,
+      assistantReply: finalResult.reply,
+      mode: finalResult.mode,
+      structured: finalResult.structured,
+      agent: finalResult.agent,
       stream: true,
     });
 
     try {
-      const telemetry = extractTurnTelemetry(result);
+      const telemetry = extractTurnTelemetry(finalResult);
       await persistAnalyticsEvent({
         ts: new Date().toISOString(),
         sessionId,
         requestId,
         route: "/api/chat/stream",
-        mode: result.mode,
-        responseSource: result.agent?.responseSource || (llm.apiKey ? "llm" : "local"),
+        mode: finalResult.mode,
+        responseSource: finalResult.agent?.responseSource || (llm.apiKey ? "llm" : "local"),
         status:
-          result.agent?.responseSource === "local" && llm.apiKey ? "fallback" : "completed",
+          finalResult.agent?.responseSource === "local" && llm.apiKey ? "fallback" : "completed",
         toolsUsed: telemetry.toolsUsed,
         agentTurns: telemetry.agentTurns,
         totalMs: telemetry.totalMs,
-        hasStructured: !!result.structured,
+        hasStructured: !!finalResult.structured,
         agentRelease: AGENT_RELEASE,
         promptVersion: PROMPT_VERSION,
         policyVersion: POLICY_VERSION,
@@ -1475,14 +1916,15 @@ app.post("/api/chat/stream", async (req, res) => {
     }
 
     sendEvent("done", {
-      reply: result.reply,
+      reply: finalResult.reply,
       sessionId,
       requestId,
-      mode: result.mode,
-      structured: result.structured,
-      agent: result.agent,
-      meta: result.meta,
-      profile: result.profile,
+      mode: finalResult.mode,
+      structured: finalResult.structured,
+      agent: finalResult.agent,
+      uiHints: buildTurnUiHints(text, finalResult, session),
+      meta: finalResult.meta,
+      profile: finalResult.profile,
     });
   }
 
@@ -1496,12 +1938,15 @@ app.post("/api/chat/stream", async (req, res) => {
         temperature: effectiveTemperature({ apiKey, baseURL, model }),
         session,
         message: text,
+        forcedMode: resolvedMode,
         storesPayload: readStoresPayload(),
+        onStep: (step) => sendEvent("step", step),
       });
+      sendEvent("step", { type: "observe", observation: "正在整理结论并生成建议" });
       await finishStreamTurn(fallback);
     } catch (error) {
       console.error("[stream fallback error]", error);
-      sendEvent("error", { message: error.message || "鏈嶅姟閿欒", requestId, sessionId });
+      sendEvent("error", { message: error.message || "服务错误", requestId, sessionId });
     }
     return res.end();
   }
@@ -1541,31 +1986,31 @@ app.post("/api/chat/stream", async (req, res) => {
       storesPayload = readStoresPayload();
     } catch (_) {}
 
-    let result = await runReActTurn({
-      client,
-      model,
-      session,
-      message: text,
-      storesPayload,
-      onStep: (step) => {
-        // 实时推送思考过程
-        sendEvent("step", step);
-      },
-    });
-
-    if (shouldFallbackFromReActTurn(result)) {
-      result = await runAgentTurn({
-        client: null,
-        model: "",
-        temperature: effectiveTemperature({ apiKey, baseURL, model }),
+    let result;
+    if (hasForcedMode) {
+      result = await runCommercialTurnWithFallback({
+        client,
+        llm: { apiKey, baseURL, model },
         session,
         message: text,
-        forcedMode: resolveTurnMode(text, session),
+        forcedMode: resolvedMode,
         storesPayload,
+        onStep: (step) => sendEvent("step", step),
       });
-    }
+    } else {
+      sendEvent("step", { type: "think", thought: "正在判断你这轮更适合推荐、对比还是用车服务" });
+      result = await runCommercialTurnWithFallback({
+      client,
+      llm: { apiKey, baseURL, model },
+      session,
+      message: text,
+      forcedMode: resolvedMode,
+      storesPayload,
+      onStep: (step) => sendEvent("step", step),
+    });
 
-    await finishStreamTurn(result, { markSuccess: true });
+    }
+    await finishStreamTurn(result, { markSuccess: result?.agent?.responseSource === "llm" });
     return;
 
     /* legacy unreachable persistence/send path removed
@@ -1629,7 +2074,9 @@ app.post("/api/chat/stream", async (req, res) => {
         temperature: effectiveTemperature({ apiKey, baseURL, model }),
         session,
         message: text,
+        forcedMode: resolvedMode,
         storesPayload: readStoresPayload(),
+        onStep: (step) => sendEvent("step", step),
       });
       await finishStreamTurn(fallback);
       return;
@@ -2382,6 +2829,15 @@ app.get("/api/ops/dashboard", async (req, res) => {
 
 async function startServer() {
   const businessDataInit = await initializeBusinessData();
+  const autoApplyDbSchema =
+    ["1", "true", "yes", "on"].includes(String(process.env.AUTO_APPLY_DB_SCHEMA || "").trim().toLowerCase()) &&
+    String(process.env.STORAGE_PROVIDER || "file").trim().toLowerCase() === "postgres" &&
+    Boolean(getDatabaseUrl());
+  if (autoApplyDbSchema) {
+    const schemaResult = await applySchema();
+    console.log(`[startup] ${schemaResult.message}: ${schemaResult.schemaFile}`);
+  }
+  await loadPersistedUserProfiles();
   await loadPersistedSessions();
   await runRetentionCleanup("startup");
   const configReport = currentConfigReport();

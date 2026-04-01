@@ -1,6 +1,25 @@
 import type { ComparisonStructured } from "@/lib/types";
 
-export function ComparisonPanel({ data }: { data: ComparisonStructured }) {
+function resolveComparisonLabels(carNames?: string[]) {
+  const names = Array.isArray(carNames)
+    ? Array.from(new Set(carNames.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
+
+  return {
+    left: names[0] || "A 方案",
+    right: names[1] || "B 方案",
+  };
+}
+
+export function ComparisonPanel({
+  data,
+  carNames,
+}: {
+  data: ComparisonStructured;
+  carNames?: string[];
+}) {
+  const labels = resolveComparisonLabels(carNames);
+
   return (
     <div className="space-y-4">
       {data.intro ? (
@@ -36,8 +55,8 @@ export function ComparisonPanel({ data }: { data: ComparisonStructured }) {
               <thead className="bg-ink-50 text-xs font-bold tracking-wide text-ink-500">
                 <tr>
                   <th className="px-4 py-3">维度</th>
-                  <th className="px-4 py-3">A 方案</th>
-                  <th className="px-4 py-3">B 方案</th>
+                  <th className="px-4 py-3">{labels.left}</th>
+                  <th className="px-4 py-3">{labels.right}</th>
                 </tr>
               </thead>
               <tbody>
@@ -64,11 +83,9 @@ export function ComparisonPanel({ data }: { data: ComparisonStructured }) {
       {data.next_steps?.length ? (
         <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/80 px-4 py-4">
           <p className="text-[11px] font-bold tracking-[0.14em] text-emerald-800">建议下一步</p>
-          <ol className="mt-3 space-y-2 text-sm leading-6 text-emerald-950/90">
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-emerald-950/90 marker:font-semibold">
             {data.next_steps.map((item, index) => (
-              <li key={item}>
-                {index + 1}. {item}
-              </li>
+              <li key={`${item}-${index}`}>{item}</li>
             ))}
           </ol>
         </div>

@@ -14,13 +14,16 @@ export function ServicePanel({ data }: { data: ServiceStructured }) {
       {data.steps?.length ? (
         <div>
           <p className="text-[11px] font-bold tracking-[0.14em] text-sky-700">操作步骤</p>
-          <ol className="relative mt-3 space-y-0 border-l-2 border-sky-200 pl-6">
+          <ol className="mt-3 space-y-3">
             {data.steps.map((step, index) => (
-              <li key={`${step}-${index}`} className="relative pb-6 last:pb-0">
-                <span className="absolute -left-[1.4rem] flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-xs font-bold text-white">
+              <li
+                key={`${step}-${index}`}
+                className="grid grid-cols-[2rem,1fr] items-start gap-3 rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-xs font-bold text-white">
                   {index + 1}
                 </span>
-                <p className="pt-0.5 text-sm leading-7 text-ink-700">{step}</p>
+                <p className="min-w-0 pt-0.5 text-sm leading-7 text-ink-700">{step}</p>
               </li>
             ))}
           </ol>
@@ -52,11 +55,9 @@ export function ServicePanel({ data }: { data: ServiceStructured }) {
       {data.next_steps?.length ? (
         <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/80 p-4">
           <p className="text-[11px] font-bold tracking-[0.14em] text-emerald-800">建议下一步</p>
-          <ol className="mt-3 space-y-2 text-sm leading-6 text-emerald-950/90">
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-emerald-950/90 marker:font-semibold">
             {data.next_steps.map((item, index) => (
-              <li key={item}>
-                {index + 1}. {item}
-              </li>
+              <li key={`${item}-${index}`}>{item}</li>
             ))}
           </ol>
         </div>

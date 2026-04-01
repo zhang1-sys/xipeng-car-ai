@@ -6,7 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0",
     "build": "node scripts/build-next.cjs --standalone",
     "build:standalone": "node scripts/build-next.cjs --standalone",
     "start": "node scripts/start-standalone.cjs",

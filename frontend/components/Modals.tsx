@@ -23,6 +23,18 @@ type ProvinceCityPreset = {
   cities: string[];
 };
 
+type StoreMetaHierarchyCity = {
+  name?: string | null;
+  cityCode?: string | null;
+};
+
+type StoreMetaHierarchyProvince = {
+  province?: string | null;
+  name?: string | null;
+  provinceCode?: string | null;
+  cities?: StoreMetaHierarchyCity[] | null;
+};
+
 const LOCATION_PRESETS: ProvinceCityPreset[] = [
   { province: "北京", cities: ["北京"] },
   { province: "上海", cities: ["上海"] },
@@ -93,6 +105,27 @@ function sortZh(values: string[]): string[] {
   return [...values].sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
+function normalizeMetaLocationHierarchy(
+  raw: unknown
+): ProvinceCityPreset[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => {
+      const provinceItem = item as StoreMetaHierarchyProvince;
+      const province = normalizeProvinceNameSafe(provinceItem.province || provinceItem.name);
+      const cities = sortZh(
+        (Array.isArray(provinceItem.cities) ? provinceItem.cities : [])
+          .map((city) => normalizeCityNameSafe(city?.name))
+          .filter(Boolean)
+      );
+
+      if (!province || !cities.length) return null;
+      return { province, cities };
+    })
+    .filter((item): item is ProvinceCityPreset => Boolean(item));
+}
+
 function extractDistrictFromAddress(
   address: string | null | undefined,
   province: string | null | undefined,
@@ -156,6 +189,30 @@ function formatDistance(method: string, distanceKm: number | null | undefined) {
   return method === "amap_driving" ? `驾车约 ${distanceKm} 公里` : `直线距离约 ${distanceKm} 公里`;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function routingMethodLabel(method: string | undefined, hasGeo: boolean) {
+  if (method === "amap_driving") return "已按驾车时间匹配最近门店";
+  if (method === "geo") return "已按定位直线距离匹配最近门店";
+  if (method === "city") return "已按城市优先匹配门店";
+  if (method === "fallback_city") return "当前城市暂无精确门店，已回退到同品牌门店";
+  if (method === "manual") return "已按你手动选择的门店提交";
+  if (hasGeo) return "提交后会按定位匹配最近门店";
+  return "提交后会按城市优先匹配门店";
+}
+
 function maskPhone(phone: string) {
   const digits = String(phone || "").replace(/\D/g, "");
   if (digits.length !== 11) return phone || "--";
@@ -206,10 +263,12 @@ export function TestDriveModal({
   open,
   onClose,
   carName,
+  intent = "test_drive",
 }: {
   open: boolean;
   onClose: () => void;
   carName?: string;
+  intent?: "test_drive" | "advisor_followup";
 }) {
   const [stores, setStores] = useState<StoreItem[]>([]);
   const [meta, setMeta] = useState<StoreMeta | null>(null);
@@ -217,6 +276,7 @@ export function TestDriveModal({
   const [phone, setPhone] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
   const [storeId, setStoreId] = useState("");
+  const [storeSelectionTouched, setStoreSelectionTouched] = useState(false);
   const [remark, setRemark] = useState("");
   const [carModel, setCarModel] = useState("");
   const [purchaseStage, setPurchaseStage] = useState("");
@@ -243,6 +303,18 @@ export function TestDriveModal({
   const [crm, setCrm] = useState<CrmLeadPayload | null>(null);
   const [crmSync, setCrmSync] = useState<CrmSyncState | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const isAdvisorFollowup = intent === "advisor_followup";
+  const modalTitle = isAdvisorFollowup ? "顾问跟进" : "预约试驾";
+  const modalDescription = isAdvisorFollowup
+    ? "留下联系方式后，系统会按你当前车型和城市优先分配顾问，继续跟进这套配置。"
+    : "填写联系信息后，我们会结合城市与门店信息，为你生成更顺手的试驾路径。";
+  const successTitle = isAdvisorFollowup ? "Demo 顾问跟进需求已记录" : "Demo 预约信息已记录";
+  const submitLabel = isAdvisorFollowup ? "提交顾问跟进" : "提交预约";
+  const officialActionLabel = isAdvisorFollowup ? "打开官方留资页" : "打开官方预约页";
+  const stageLabel = isAdvisorFollowup ? "线索状态" : "预约状态";
+  const fallbackDoneMessage = isAdvisorFollowup
+    ? "当前仅演示 mock 跟进流程，不会触发真实顾问接单。你可以继续查看门店和权益，或前往官方页面留下正式线索。"
+    : "当前仅演示 mock 流程，不会触发真实顾问接单。你可以继续查看门店和权益，或直接前往官方预约页完成真实预约。";
 
   useEscape(onClose, open);
 
@@ -258,6 +330,7 @@ export function TestDriveModal({
     setGeoLocation(null);
     setUserLat(null);
     setUserLng(null);
+    setStoreSelectionTouched(false);
     setSelectedProvince("");
     setSelectedCity("");
     setSelectedDistrict("");
@@ -266,8 +339,8 @@ export function TestDriveModal({
     setBuyTimeline("");
     setPrivacyConsent(true);
     setContactConsent(true);
-    setCarModel((prev) => (carName && !prev ? carName : prev || carName || ""));
-  }, [open, carName]);
+    setCarModel(carName || "");
+  }, [open, carName, intent]);
 
   useEffect(() => {
     if (!open) return;
@@ -278,7 +351,11 @@ export function TestDriveModal({
         if (cancelled) return;
         setStores(data.stores);
         setMeta(data.meta);
-      } catch {}
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "加载门店列表失败，请稍后重试。");
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -292,6 +369,7 @@ export function TestDriveModal({
     setStoreId("");
     setRemark("");
     setCarModel("");
+    setStoreSelectionTouched(false);
     setSelectedProvince("");
     setSelectedCity("");
     setSelectedDistrict("");
@@ -315,6 +393,9 @@ export function TestDriveModal({
 
   const locationHierarchy = useMemo(() => {
     const provinceMap = new Map<string, Set<string>>();
+    const metaHierarchy = normalizeMetaLocationHierarchy(
+      (meta as (StoreMeta & { locationHierarchy?: unknown[] }) | null)?.locationHierarchy
+    );
 
     const append = (provinceRaw: string | null | undefined, cityRaw: string | null | undefined) => {
       const province = normalizeProvinceNameSafe(provinceRaw || cityRaw);
@@ -328,9 +409,15 @@ export function TestDriveModal({
       }
     };
 
-    LOCATION_PRESETS.forEach((item) => {
-      item.cities.forEach((city) => append(item.province, city));
-    });
+    if (metaHierarchy.length) {
+      metaHierarchy.forEach((item) => {
+        item.cities.forEach((city) => append(item.province, city));
+      });
+    } else {
+      LOCATION_PRESETS.forEach((item) => {
+        item.cities.forEach((city) => append(item.province, city));
+      });
+    }
     stores.forEach((store) => append(store.province || store.city, store.city));
     append(geoLocation?.province, geoLocation?.city);
 
@@ -338,7 +425,7 @@ export function TestDriveModal({
       province,
       cities: sortZh(Array.from(provinceMap.get(province) || [])),
     }));
-  }, [stores, geoLocation?.province, geoLocation?.city]);
+  }, [meta, stores, geoLocation?.province, geoLocation?.city]);
 
   const provinceOptions = useMemo(
     () => locationHierarchy.map((item) => item.province),
@@ -408,6 +495,13 @@ export function TestDriveModal({
   const submittedCity =
     resolvedCity || resolvedProvince || routing?.assignedStore?.city || "待确认";
   const locationSummary = [resolvedProvince, resolvedCity, resolvedDistrict].filter(Boolean).join(" / ");
+  const approxStoreDistanceKm = useCallback(
+    (store: StoreItem) => {
+      if (userLat == null || userLng == null || store.lat == null || store.lng == null) return null;
+      return Math.round(haversineKm(userLat, userLng, store.lat, store.lng) * 10) / 10;
+    },
+    [userLat, userLng]
+  );
 
   const matchedStoreCount = useMemo(() => {
     return stores.filter((store) => {
@@ -421,7 +515,7 @@ export function TestDriveModal({
 
   const prioritizedStores = useMemo(() => {
     if (!resolvedProvince && !resolvedCity) return stores;
-    const matched: StoreItem[] = [];
+    const matched: Array<{ store: StoreItem; distanceKm: number | null }> = [];
     const others: StoreItem[] = [];
     stores.forEach((store) => {
       const storeProvince = normalizeProvinceNameSafe(store.province || store.city);
@@ -429,13 +523,31 @@ export function TestDriveModal({
       const fitsProvince = !resolvedProvince || storeProvince === resolvedProvince;
       const fitsCity = !resolvedCity || storeCity === resolvedCity;
       if (fitsProvince && fitsCity) {
-        matched.push(store);
+        matched.push({
+          store,
+          distanceKm: approxStoreDistanceKm(store),
+        });
       } else {
         others.push(store);
       }
     });
-    return [...matched, ...others];
-  }, [stores, resolvedProvince, resolvedCity]);
+    matched.sort((a, b) => {
+      if (a.distanceKm == null && b.distanceKm == null) return 0;
+      if (a.distanceKm == null) return 1;
+      if (b.distanceKm == null) return -1;
+      return a.distanceKm - b.distanceKm;
+    });
+    return [...matched.map((item) => item.store), ...others];
+  }, [stores, resolvedProvince, resolvedCity, approxStoreDistanceKm]);
+  const recommendedStore = prioritizedStores[0] || null;
+
+  useEffect(() => {
+    if (!recommendedStore) return;
+    if (storeSelectionTouched) return;
+    if (!resolvedCity && !hasGeo) return;
+    if (storeId === recommendedStore.id) return;
+    setStoreId(recommendedStore.id);
+  }, [recommendedStore, storeId, resolvedCity, hasGeo, storeSelectionTouched]);
 
   const requestGeo = () => {
     if (!navigator.geolocation) {
@@ -450,6 +562,8 @@ export function TestDriveModal({
     }
     setGeoHint("正在获取你的位置...");
     setGeoLocation(null);
+    setStoreSelectionTouched(false);
+    setStoreId("");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -527,24 +641,29 @@ export function TestDriveModal({
       />
       <div className="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-white/20 bg-white shadow-[0_-20px_60px_-20px_rgba(15,23,42,0.35)] dark:border-slate-600/60 dark:bg-slate-900 sm:rounded-3xl sm:shadow-float">
         <div className="shrink-0 bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-5 text-white">
-          <h2 className="text-lg font-semibold tracking-tight">预约试驾</h2>
-          <p className="mt-1 text-sm text-white/85">
-            填写联系信息后，我们会结合城市与门店信息，为你生成更顺手的试驾路径。
-          </p>
+          <h2 className="text-lg font-semibold tracking-tight">{modalTitle}</h2>
+          <p className="mt-1 text-sm text-white/85">{modalDescription}</p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {isAdvisorFollowup ? (
+            <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-4 text-sm text-sky-950">
+              <p className="font-semibold">顾问跟进</p>
+              <p className="mt-2 leading-relaxed">
+                会基于你当前车型和配置继续分配顾问，不需要先完成试驾预约。
+              </p>
+            </div>
+          ) : null}
           {done ? (
             <div className="space-y-4 text-sm text-ink-800">
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-4">
-                <p className="font-semibold text-emerald-950">Demo 预约信息已记录</p>
+                <p className="font-semibold text-emerald-950">{successTitle}</p>
                 <p className="mt-2 leading-relaxed text-emerald-900/90">
-                  {submitMessage ||
-                    "当前仅演示 mock 流程，不会触发真实顾问接单。你可以继续查看门店和权益，或直接前往官方预约页完成真实预约。"}
+                  {submitMessage || fallbackDoneMessage}
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <Metric
-                  label="预约状态"
+                  label={stageLabel}
                   value={leadStageLabel(routing?.leadStage || crm?.stage)}
                   tone="border-sky-200 bg-sky-50 text-sky-900"
                 />
@@ -559,8 +678,8 @@ export function TestDriveModal({
                   tone={priorityTone(routing?.leadPriority || crm?.priority)}
                 />
               </div>
-              {nextActions.length ? (
-                <section className="rounded-2xl border border-ink-100 bg-white/80 p-4">
+              {!isAdvisorFollowup && nextActions.length ? (
+                <section className="hidden rounded-2xl border border-ink-100 bg-white/80 p-4">
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-500">
                     建议下一步
                   </p>
@@ -626,6 +745,9 @@ export function TestDriveModal({
                   </p>
                   {routing?.assignedStore ? (
                     <div className="mt-3 space-y-3">
+                      <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] leading-5 text-sky-900">
+                        {routingMethodLabel(routing.method, userLat != null && userLng != null)}
+                      </div>
                       <div>
                         <p className="text-base font-semibold text-ink-900">
                           {routing.assignedStore.brand ? `${routing.assignedStore.brand} · ` : ""}
@@ -667,8 +789,8 @@ export function TestDriveModal({
                 <section className="rounded-2xl border border-ink-100 bg-white/80 p-4">
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-500">权益信息</p>
                   <p className="mt-3 text-sm leading-relaxed text-ink-700">
-                    {routing?.matchedRightsTitle
-                      ? `当前匹配权益：${routing.matchedRightsTitle}`
+                    {false && routing?.matchedRightsTitle
+                      ? `当前匹配权益：${routing?.matchedRightsTitle}`
                       : "暂时没有匹配到具体权益，建议以官方页面和门店实际信息为准。"}
                   </p>
                 </section>
@@ -732,7 +854,7 @@ export function TestDriveModal({
                   rel="noopener noreferrer"
                   className="flex flex-1 items-center justify-center rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
                 >
-                  打开官方预约页
+                  {officialActionLabel}
                 </a>
                 <button
                   type="button"
@@ -765,7 +887,7 @@ export function TestDriveModal({
                     preferredTime,
                     carModel: carModel || carName,
                     storeId: storeId || undefined,
-                    remark,
+                    remark: [isAdvisorFollowup ? "意图：顾问跟进" : "", remark].filter(Boolean).join("；"),
                     purchaseStage: purchaseStage || undefined,
                     buyTimeline: buyTimeline || undefined,
                     privacyConsent,
@@ -880,6 +1002,7 @@ export function TestDriveModal({
                             setSelectedProvince(e.target.value);
                             setSelectedCity("");
                             setSelectedDistrict("");
+                            setStoreSelectionTouched(false);
                             setStoreId("");
                           }}
                           className="mt-1.5 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
@@ -901,6 +1024,7 @@ export function TestDriveModal({
                           onChange={(e) => {
                             setSelectedCity(e.target.value);
                             setSelectedDistrict("");
+                            setStoreSelectionTouched(false);
                             setStoreId("");
                           }}
                           disabled={!selectedProvince}
@@ -973,6 +1097,9 @@ export function TestDriveModal({
                     <p className="mt-2 text-xs leading-relaxed text-ink-500">
                       {resolvedLocationDetail || "定位成功后，这里会直接显示你的详细位置，并用于优先匹配附近门店。"}
                     </p>
+                    <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] leading-5 text-sky-900">
+                      {routingMethodLabel(undefined, hasGeo)}
+                    </div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-800">
                         {matchedStoreCount} 家可参考门店
@@ -998,9 +1125,52 @@ export function TestDriveModal({
                     <span className="text-[11px] font-medium text-sky-700">已按你的位置优先排序</span>
                   ) : null}
                 </div>
+                {recommendedStore ? (
+                  <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">
+                          系统优先分配门店
+                        </p>
+                        <p className="mt-2 text-base font-semibold text-ink-900">
+                          {recommendedStore.brand ? `${recommendedStore.brand} · ` : ""}
+                          {recommendedStore.name}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-ink-600">{recommendedStore.address}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-right">
+                        <p className="text-[11px] font-semibold text-sky-700">
+                          {hasGeo ? "按定位优先匹配" : "按城市优先匹配"}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-ink-900">
+                          {approxStoreDistanceKm(recommendedStore) != null
+                            ? `约 ${approxStoreDistanceKm(recommendedStore)} km`
+                            : recommendedStore.city}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-sky-900">
+                      <span className="rounded-full bg-white px-3 py-1.5">
+                        {routingMethodLabel(undefined, hasGeo)}
+                      </span>
+                      {recommendedStore.phone ? (
+                        <a
+                          href={`tel:${recommendedStore.phone.replace(/\s|-/g, "")}`}
+                          className="rounded-full bg-white px-3 py-1.5 font-semibold text-sky-800"
+                        >
+                          {recommendedStore.phone}
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <select
                   value={storeId}
-                  onChange={(e) => setStoreId(e.target.value)}
+                  onChange={(e) => {
+                    const nextStoreId = e.target.value;
+                    setStoreId(nextStoreId);
+                    setStoreSelectionTouched(Boolean(nextStoreId));
+                  }}
                   className="mt-1.5 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
                 >
                   <option value="">让系统为我推荐门店</option>
@@ -1009,6 +1179,7 @@ export function TestDriveModal({
                       {store.brand ? `${store.brand} · ` : ""}
                       {store.province ? `${store.province} · ` : ""}
                       {store.city} · {store.name}
+                      {approxStoreDistanceKm(store) != null ? ` · 约 ${approxStoreDistanceKm(store)}km` : ""}
                     </option>
                   ))}
                 </select>
@@ -1066,7 +1237,7 @@ export function TestDriveModal({
                   disabled={loading}
                   className="rounded-xl bg-ink-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ink-800 disabled:opacity-50"
                 >
-                  {loading ? "提交中..." : "提交预约"}
+                  {loading ? "提交中..." : submitLabel}
                 </button>
               </div>
             </form>
@@ -1343,7 +1514,7 @@ export function OfferModal({
         aria-label="关闭"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-orange-50/50 p-6 shadow-float dark:border-amber-800/50 dark:from-amber-950/40 dark:via-slate-900 dark:to-orange-950/30">
+      <div className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-orange-50/50 p-6 shadow-float dark:border-amber-800/50 dark:from-amber-950/40 dark:via-slate-900 dark:to-orange-950/30">
         <h2 className="text-lg font-semibold text-amber-950">购车权益与活动（公开快照）</h2>
         <p className="mt-3 text-sm leading-relaxed text-amber-950/85">
           {meta?.disclaimer ||

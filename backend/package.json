@@ -8,8 +8,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:railway": "node scripts/railway-start.js",
     "dev": "node server.js",
     "smoke": "node smoke-test.js",
+    "smoke:configurator": "node scripts/smoke-configurator-models.mjs",
+    "sync:stores": "node scripts/sync-stores-official.mjs",
     "eval": "node eval-runner.js",
     "reset-demo-data": "node scripts/reset-demo-data.js",
     "db:health": "node db/check-db-health.js",

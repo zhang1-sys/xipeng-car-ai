@@ -1,8 +1,15 @@
 const standaloneEnabled = process.env.NEXT_STANDALONE === "1";
+const devOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:3010",
+  "http://127.0.0.1:3010",
+];
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: devOrigins,
   experimental: {
     // NOTE: Must be explicitly false. In Next.js 14.2.x the build worker is
     // enabled unless this flag is truthy; setting it to true will *force* the

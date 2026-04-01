@@ -26,6 +26,14 @@ function detectIntent(message) {
   if (comparisonIntentSafe) {
     return "comparison";
   }
+  const hasKnownCarMention =
+    /\b(?:g6|g7|g9|x9|p7\+?|p7i|m[o0]3|mona\s*m[o0]3)\b/i.test(lower) ||
+    /G6|G7|G9|X9|P7\+|P7i|M03|MONA\s*M03/.test(m);
+  const singleCarExplainIntent =
+    /(讲讲|说说|介绍|详解|详细讲|仔细讲|分析|优缺点|版本|配置|怎么样|值得买吗)/.test(m);
+  if (hasKnownCarMention && singleCarExplainIntent) {
+    return "recommendation";
+  }
   if (
     /\u63a8\u8350|\u4e70\u8f66|\u9009\u8f66|\u8d2d\u8f66|\u9884\u7b97|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u503c\u5f97\u4e70|\u8f66\u578b|\u901a\u52e4|\u5bb6\u7528|SUV|\u8f7f\u8f66|MPV/i.test(m)
   ) {

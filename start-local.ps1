@@ -15,11 +15,12 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd | Out-
 Start-Sleep -Seconds 2
 
 Write-Host "Starting frontend on $frontendPort ..."
-$frontendCmd = "$env:NEXT_PUBLIC_API_URL='$apiUrl'; Set-Location '$frontendDir'; npm run dev -- --port $frontendPort"
+$frontendCmd = "$env:NEXT_PUBLIC_API_URL='$apiUrl'; Set-Location '$frontendDir'; npm run dev -- --hostname 0.0.0.0 --port $frontendPort"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCmd | Out-Null
 
 Write-Host ""
 Write-Host "Frontend: http://127.0.0.1:$frontendPort"
+Write-Host "Frontend: http://localhost:$frontendPort"
 Write-Host "Backend : http://127.0.0.1:$backendPort/health"
 Write-Host ""
 Write-Host "If the browser does not open automatically, paste the frontend URL into your browser."

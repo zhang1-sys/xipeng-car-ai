@@ -171,19 +171,22 @@ export async function submitTestDrive(body: {
 export async function streamChat(
   message: string,
   sessionId: string | null | undefined,
+  clientProfileId: string | null | undefined,
+  mode: ChatResponse["mode"] | undefined,
   onStep: (step: { type: string; thought?: string; action?: string; observation?: string }) => void,
   onDone: (result: Partial<ChatResponse> & { reply: string; sessionId: string; meta?: unknown }) => void,
   onError: (err: string) => void
 ): Promise<void> {
   const fallbackToPostChat = async (reason?: string) => {
     try {
-      const data = await postChat(message, sessionId);
+      const data = await postChat(message, sessionId, clientProfileId, mode);
       onDone({
         reply: data.reply,
         sessionId: data.sessionId || sessionId || "",
         mode: data.mode,
         structured: data.structured,
         agent: data.agent,
+        uiHints: data.uiHints,
         requestId: data.requestId,
         meta: {
           fallbackReason: reason || "stream_unavailable",
@@ -197,16 +200,16 @@ export async function streamChat(
   const res = await fetch(`${apiBase()}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, ...(sessionId ? { sessionId } : {}) }),
+    body: JSON.stringify({
+      message,
+      ...(sessionId ? { sessionId } : {}),
+      ...(clientProfileId ? { clientProfileId } : {}),
+      ...(mode ? { mode } : {}),
+    }),
   });
 
   if (!res.ok || !res.body) {
     await fallbackToPostChat(`stream_http_${res.status}`);
-    return;
-  }
-
-  if (!res.ok || !res.body) {
-    onError(`请求失败 (${res.status})`);
     return;
   }
 
@@ -331,6 +334,7 @@ export async function postConfigurator(
 export async function postChat(
   message: string,
   sessionId?: string | null,
+  clientProfileId?: string | null,
   mode?: ChatResponse["mode"]
 ): Promise<ChatResponse> {
   const res = await fetchWithTimeout(`${apiBase()}/api/chat`, {
@@ -339,6 +343,7 @@ export async function postChat(
     body: JSON.stringify({
       message,
       ...(sessionId ? { sessionId } : {}),
+      ...(clientProfileId ? { clientProfileId } : {}),
       ...(mode ? { mode } : {}),
     }),
   });

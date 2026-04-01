@@ -65,6 +65,9 @@ export interface ConfiguratorStructured {
   exteriorColor?: string | null;
   interiorColor?: string | null;
   packages?: string[];
+  notes?: string[];
+  restrictionNotes?: string[];
+  activeRestrictionNotes?: string[];
   estimatedPrice?: string | null;
   estimatedPriceNote?: string | null;
   summary_text?: string;
@@ -107,7 +110,7 @@ export interface AgentTraceStep {
 }
 
 export interface ReActStep {
-  type: "think" | "act" | "observe" | "done";
+  type: "think" | "act" | "observe" | "reset" | "done";
   thought?: string;
   action?: string;
   actionInput?: unknown;
@@ -139,17 +142,23 @@ export interface ConfiguratorChoiceVariant {
 export interface ConfiguratorChoiceColor {
   name: string;
   premium?: number;
+  availableVariants?: string[];
+  allowedInteriors?: string[];
 }
 
 export interface ConfiguratorChoiceInterior {
   name: string;
   premium?: number;
+  availableVariants?: string[];
 }
 
 export interface ConfiguratorChoicePackage {
   name: string;
   price?: number;
   desc?: string | null;
+  items?: string[];
+  availableVariants?: string[];
+  conflictsWith?: string[];
 }
 
 export interface ConfiguratorChoicesPayload {
@@ -158,6 +167,9 @@ export interface ConfiguratorChoicesPayload {
   colors: ConfiguratorChoiceColor[];
   interiors: ConfiguratorChoiceInterior[];
   packages: ConfiguratorChoicePackage[];
+  notes?: string[];
+  restrictionNotes?: string[];
+  activeRestrictionNotes?: string[];
 }
 
 export interface ConfiguratorResponse {
@@ -604,6 +616,16 @@ export interface ChatResponse {
   requestId?: string;
   structured?: StructuredPayload;
   agent?: AgentPayload;
+  uiHints?: ChatUiHints;
+}
+
+export interface ChatUiHints {
+  showRecommendationCards?: boolean;
+  showRecommendationConversion?: boolean;
+  showServiceConversion?: boolean;
+  showTestDriveCard?: boolean;
+  showAdvisorFollowupCard?: boolean;
+  conversionCarName?: string;
 }
 
 export interface ChatMessage {
@@ -614,6 +636,11 @@ export interface ChatMessage {
   mode?: ChatMode;
   structured?: StructuredPayload;
   agent?: AgentPayload;
+  uiHints?: ChatUiHints;
+  isStreaming?: boolean;
+  streamingLabel?: string;
+  streamingSteps?: string[];
+  traceSteps?: string[];
 }
 
 export interface StoreMeta {
@@ -626,6 +653,19 @@ export interface StoreMeta {
   source_url?: string;
   fetched_at?: string;
   version?: string;
+  locationHierarchy?: Array<{
+    province?: string;
+    provinceCode?: string | null;
+    cities?: Array<{
+      name?: string;
+      cityCode?: string | null;
+    }>;
+  }>;
+  counts?: {
+    provinces?: number;
+    cities?: number;
+    stores?: number;
+  };
 }
 
 export interface StoreItem {
@@ -634,9 +674,14 @@ export interface StoreItem {
   name: string;
   city: string;
   province?: string;
+  district?: string;
+  provinceCode?: string | null;
+  cityCode?: string | null;
+  districtCode?: string | null;
   type?: string;
   address: string;
   phone?: string;
+  servicePhone?: string;
   hours?: string;
   services?: string[];
   mapQuery?: string;

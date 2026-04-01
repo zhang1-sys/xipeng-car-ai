@@ -18,9 +18,22 @@ const {
   DATA_ADAPTER_VERSION,
 } = require("./agentVersioning");
 
-const PORT = Number(process.env.EVAL_PORT || 3102);
-const BASE = `http://127.0.0.1:${PORT}`;
 const USE_EXISTING_SERVER = process.env.EVAL_USE_EXISTING_SERVER === "true";
+const DEFAULT_APP_PORT = 3001;
+const DEFAULT_EVAL_PORT = 3102;
+
+function resolvePort(value, fallback) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 ? port : fallback;
+}
+
+const PORT = resolvePort(
+  process.env.EVAL_PORT,
+  USE_EXISTING_SERVER
+    ? resolvePort(process.env.PORT, DEFAULT_APP_PORT)
+    : DEFAULT_EVAL_PORT
+);
+const BASE = `http://127.0.0.1:${PORT}`;
 const MIN_RELEASE_PASS_RATE = 0.85;
 let serverProcess = null;
 
@@ -141,6 +154,7 @@ async function runScenario(scenario) {
     method,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      "X-Internal-Test": "true",
     },
   };
 

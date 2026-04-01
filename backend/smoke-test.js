@@ -5,9 +5,22 @@ const { Client } = require("pg");
 
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const PORT = Number(process.env.SMOKE_PORT || 3101);
-const BASE = `http://127.0.0.1:${PORT}`;
 const USE_EXISTING_SERVER = process.env.SMOKE_USE_EXISTING_SERVER === "true";
+const DEFAULT_APP_PORT = 3001;
+const DEFAULT_SMOKE_PORT = 3101;
+
+function resolvePort(value, fallback) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 ? port : fallback;
+}
+
+const PORT = resolvePort(
+  process.env.SMOKE_PORT,
+  USE_EXISTING_SERVER
+    ? resolvePort(process.env.PORT, DEFAULT_APP_PORT)
+    : DEFAULT_SMOKE_PORT
+);
+const BASE = `http://127.0.0.1:${PORT}`;
 const OPS_ACCESS_TOKEN = String(process.env.OPS_ACCESS_TOKEN || "smoke-test-token").trim();
 let serverProcess = null;
 const SMOKE_CHECKS = [
@@ -27,7 +40,9 @@ const SMOKE_CHECKS = [
   "comparison",
   "service",
   "forced_mode",
+  "single_car_deep_dive",
   "multi_turn_memory",
+  "memory_isolation_service",
   "stream_chat",
   "configurator",
   "conversation_replay",
@@ -183,13 +198,14 @@ function assert(condition, message) {
 }
 
 function buildOpsHeaders() {
-  if (!OPS_ACCESS_TOKEN) {
-    return {};
-  }
-
   return {
-    "X-Ops-Token": OPS_ACCESS_TOKEN,
-    "X-Ops-Actor": "smoke-test",
+    "X-Internal-Test": "true",
+    ...(OPS_ACCESS_TOKEN
+      ? {
+          "X-Ops-Token": OPS_ACCESS_TOKEN,
+          "X-Ops-Actor": "smoke-test",
+        }
+      : {}),
   };
 }
 
@@ -315,6 +331,20 @@ async function main() {
   assert(forcedComparison.response.ok, "forced comparison request failed");
   assertExpectedModeOrTimeout(forcedComparison, "comparison");
 
+  const singleCarDeepDive = await postJson(`${BASE}/api/chat`, {
+    message: "讲讲G9",
+  });
+  assert(singleCarDeepDive.response.ok, "single car deep dive request failed");
+  const singleCarStatus = assertExpectedModeOrTimeout(singleCarDeepDive, "recommendation");
+  if (singleCarStatus === "expected") {
+    assert(
+      Array.isArray(singleCarDeepDive.json.structured?.cars) &&
+        singleCarDeepDive.json.structured.cars.length === 1 &&
+        singleCarDeepDive.json.structured.cars[0]?.name === "G9",
+      "single car deep dive should only keep G9"
+    );
+  }
+
   const firstTurn = await postJson(`${BASE}/api/chat`, {
     message:
       "\u9884\u7b9720\u4e07\u5185\uff0c\u4e3b\u8981\u57ce\u5e02\u901a\u52e4\uff0c\u60f3\u8981\u667a\u80fd\u5316\u597d\u4e00\u70b9\u7684 SUV",
@@ -329,6 +359,22 @@ async function main() {
   });
   assert(secondTurn.response.ok, "second turn request failed");
   assertExpectedModeOrTimeout(secondTurn, "recommendation");
+
+  const isolatedSessionTurn1 = await postJson(`${BASE}/api/chat`, {
+    message: "讲讲G9，预算20万",
+  });
+  assert(isolatedSessionTurn1.response.ok, "memory isolation turn1 failed");
+  const isolatedSessionId = isolatedSessionTurn1.json.sessionId;
+  const isolatedSessionTurn2 = await postJson(`${BASE}/api/chat`, {
+    message: "第一次买纯电车，想知道日常补能、保养和冬季续航要注意什么。",
+    sessionId: isolatedSessionId,
+  });
+  assert(isolatedSessionTurn2.response.ok, "memory isolation turn2 failed");
+  const isolatedServiceStatus = assertExpectedModeOrTimeout(isolatedSessionTurn2, "service");
+  if (isolatedServiceStatus === "expected") {
+    const traceText = JSON.stringify(isolatedSessionTurn2.json.agent?.trace || []);
+    assert(!/G9|20万/.test(traceText), "service trace should not leak previous recommendation profile");
+  }
 
   const piiTurn = await postJson(`${BASE}/api/chat`, {
     message: "My phone is 13800138000 and my email is demo@example.com",

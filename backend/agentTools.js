@@ -33,14 +33,21 @@ function matchCarByName(name) {
   if (!query) return null;
   let best = null;
   let bestScore = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
   for (const car of getCars()) {
     const label = normalizeText(`${car.brand || ""}${car.name || ""}`);
     const carName = normalizeText(car.name);
     let score = 0;
-    if (label === query || carName === query) score += 5;
+    if (label === query || carName === query) score += 8;
     if (query.includes(label) || label.includes(query)) score += 3;
-    if (query.includes(carName) || carName.includes(query)) score += 2;
-    if (score > bestScore) { best = car; bestScore = score; }
+    if (query.includes(carName)) score += 2;
+    else if (carName.includes(query)) score += 1;
+    const distance = Math.abs(carName.length - query.length);
+    if (score > bestScore || (score === bestScore && distance < bestDistance)) {
+      best = car;
+      bestScore = score;
+      bestDistance = distance;
+    }
   }
   return bestScore > 0 ? best : null;
 }
