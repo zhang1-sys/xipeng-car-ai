@@ -1,4 +1,4 @@
-import snapshot from "../../backend/configurator-snapshot.json";
+import snapshot from "../configurator-snapshot.json";
 import type {
   ConfiguratorChoicesPayload,
   ConfiguratorChoiceColor,
