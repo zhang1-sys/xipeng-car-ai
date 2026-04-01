@@ -350,6 +350,15 @@ async function main() {
       "\u9884\u7b9720\u4e07\u5185\uff0c\u4e3b\u8981\u57ce\u5e02\u901a\u52e4\uff0c\u60f3\u8981\u667a\u80fd\u5316\u597d\u4e00\u70b9\u7684 SUV",
     mode: "recommendation",
   });
+  const firstTurnStatus = assertExpectedModeOrTimeout(firstTurn, "recommendation");
+  if (firstTurnStatus === "expected") {
+    assert(firstTurn.json.agent?.profile?.city !== "主要城", "recommendation city parser should not capture 主要城");
+    const recommendedCars = Array.isArray(firstTurn.json.structured?.cars) ? firstTurn.json.structured.cars : [];
+    assert(
+      !recommendedCars.some((item) => String(item?.name || "").includes("P7+")),
+      "SUV recommendation should not carry over stale P7+ card"
+    );
+  }
   const sessionId = firstTurn.json.sessionId;
   const secondTurn = await postJson(`${BASE}/api/chat`, {
     message:
@@ -374,6 +383,46 @@ async function main() {
   if (isolatedServiceStatus === "expected") {
     const traceText = JSON.stringify(isolatedSessionTurn2.json.agent?.trace || []);
     assert(!/G9|20万/.test(traceText), "service trace should not leak previous recommendation profile");
+  }
+
+  const staleComparisonSeed = await postJson(`${BASE}/api/chat`, {
+    message: "对比 G6 和 X9",
+    mode: "comparison",
+  });
+  assert(staleComparisonSeed.response.ok, "stale comparison seed request failed");
+  const staleComparisonSessionId = staleComparisonSeed.json.sessionId;
+  const refreshedComparison = await postJson(`${BASE}/api/chat`, {
+    message: "对比G6 755km与P7+ 725km的落地价差异",
+    sessionId: staleComparisonSessionId,
+    mode: "comparison",
+  });
+  assert(refreshedComparison.response.ok, "refreshed comparison request failed");
+  const refreshedComparisonStatus = assertExpectedModeOrTimeout(refreshedComparison, "comparison");
+  if (refreshedComparisonStatus === "expected") {
+    const comparisonCarNames = Array.isArray(refreshedComparison.json.structured?.carNames)
+      ? refreshedComparison.json.structured.carNames.join(" | ")
+      : "";
+    assert(/G6/i.test(comparisonCarNames), "refreshed comparison should keep G6");
+    assert(/P7\+/i.test(comparisonCarNames), "refreshed comparison should include P7+");
+    assert(!/X9/i.test(comparisonCarNames), "refreshed comparison should not reuse stale X9 label");
+  }
+
+  const singleCarAfterComparison = await postJson(`${BASE}/api/chat`, {
+    message: "小米yu7如何",
+    sessionId: staleComparisonSessionId,
+    mode: "comparison",
+  });
+  assert(singleCarAfterComparison.response.ok, "single car after comparison request failed");
+  const singleCarAfterComparisonStatus = assertExpectedModeOrTimeout(singleCarAfterComparison, "recommendation");
+  if (singleCarAfterComparisonStatus === "expected") {
+    assert(
+      singleCarAfterComparison.json.mode === "recommendation",
+      "single car explain should override stale comparison mode"
+    );
+    assert(
+      !/X9/i.test(JSON.stringify(singleCarAfterComparison.json.structured || {})),
+      "single car explain should not leak stale X9 card content"
+    );
   }
 
   const piiTurn = await postJson(`${BASE}/api/chat`, {

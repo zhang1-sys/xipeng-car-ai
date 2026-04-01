@@ -32,6 +32,7 @@ export interface ComparisonDimension {
 }
 
 export interface ComparisonStructured {
+  carNames?: string[];
   intro?: string;
   decision_focus?: string[];
   dimensions?: ComparisonDimension[];

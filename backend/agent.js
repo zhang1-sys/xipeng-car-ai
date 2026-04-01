@@ -9,6 +9,18 @@ function getCars() {
   return readCatalogPayload().items;
 }
 
+function hasGenericCarMention(message) {
+  return /(?:[a-z]{1,6}\s*\d+(?:\+|i)?|[\u4e00-\u9fa5]{1,6}\s*[a-z]{1,6}\s*\d+(?:\+|i)?)/i.test(
+    String(message || "")
+  );
+}
+
+function hasSingleCarExplainIntent(message) {
+  return /(讲讲|说说|介绍|详解|详细讲|仔细讲|分析|优缺点|版本|配置|怎么样|如何|值不值得|值得买吗)/.test(
+    String(message || "")
+  );
+}
+
 /**
  * @param {string} message
  * @returns {'recommendation'|'comparison'|'service'}
@@ -29,9 +41,7 @@ function detectIntent(message) {
   const hasKnownCarMention =
     /\b(?:g6|g7|g9|x9|p7\+?|p7i|m[o0]3|mona\s*m[o0]3)\b/i.test(lower) ||
     /G6|G7|G9|X9|P7\+|P7i|M03|MONA\s*M03/.test(m);
-  const singleCarExplainIntent =
-    /(讲讲|说说|介绍|详解|详细讲|仔细讲|分析|优缺点|版本|配置|怎么样|值得买吗)/.test(m);
-  if (hasKnownCarMention && singleCarExplainIntent) {
+  if ((hasKnownCarMention || hasGenericCarMention(m)) && hasSingleCarExplainIntent(m)) {
     return "recommendation";
   }
   if (

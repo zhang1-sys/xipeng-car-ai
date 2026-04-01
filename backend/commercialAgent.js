@@ -388,20 +388,42 @@ function extractBudgetSnippet(text) {
 function extractCitySnippetSafe(text) {
   const raw = String(text || "");
   const normalized = raw.replace(/\s+/g, "");
+  const bannedPrefixes = ["主要", "这个", "那个", "一些", "城市", "同城", "本市", "全市"];
+  const cleanCityCandidate = (value) => {
+    const candidate = String(value || "").trim().replace(/特别行政区|自治区|自治州|地区|盟/g, "");
+    if (!candidate || candidate.length < 2 || candidate.length > 8) return "";
+    if (bannedPrefixes.some((item) => candidate.startsWith(item))) return "";
+    if (/城市|市区|通勤|场景|全国|同城/.test(candidate)) return "";
+    return candidate.replace(/[省市区县]$/g, "");
+  };
   const directCnMatch = normalized.match(
     /(?:在|住在|人在|定位到|我在|我是)([\u4e00-\u9fa5]{2,10})(?:市|区|县)?/u
   );
-  if (directCnMatch) return directCnMatch[1];
+  if (directCnMatch) {
+    const cleaned = cleanCityCandidate(directCnMatch[1]);
+    if (cleaned) return cleaned;
+  }
 
-  const cityCnMatch = normalized.match(/([\u4e00-\u9fa5]{2,10})(?:市|区|县)/u);
-  if (cityCnMatch) return cityCnMatch[1];
+  const cityCnMatch = normalized.match(
+    /(?:^|[，。、“”"'\s])([\u4e00-\u9fa5]{2,8})(?:市|区|县)(?=$|[，。、“”"'\s的了呢呀吗吧人车店门试住买用])/u
+  );
+  if (cityCnMatch) {
+    const cleaned = cleanCityCandidate(cityCnMatch[1]);
+    if (cleaned) return cleaned;
+  }
   const directMatch = raw.match(
     /(?:在|去|住在|人在|定位到|我在|我是)\s*([\u4e00-\u9fa5]{2,6})(?:市|区|县)?/u
   );
-  if (directMatch) return directMatch[1];
+  if (directMatch) {
+    const cleaned = cleanCityCandidate(directMatch[1]);
+    if (cleaned) return cleaned;
+  }
 
-  const fallbackMatch = raw.match(/([\u4e00-\u9fa5]{2,6})(?:市|区|县)/u);
-  return fallbackMatch ? fallbackMatch[1] : "";
+  const fallbackMatch = raw.match(
+    /(?:^|[，。、“”"'\s])([\u4e00-\u9fa5]{2,6})(?:市|区|县)(?=$|[，。、“”"'\s的了呢呀吗吧人车店门试住买用])/u
+  );
+  if (!fallbackMatch) return "";
+  return cleanCityCandidate(fallbackMatch[1]);
 }
 
 function buildMemorySummarySafe(profile) {
@@ -669,6 +691,12 @@ function messageHasPotentialCarMention(text) {
   return extractPotentialCarQueries(text).length > 0;
 }
 
+function isSupplementalProfileMessageSafe(text) {
+  return /预算|万|家充|装桩|充电|城市|我在|人在|通勤|长途|带娃|家庭|空间|智驾|智能化|续航|SUV|轿车|六座|七座|广州|深圳|上海|北京/.test(
+    String(text || "")
+  );
+}
+
 function extractCarFamilyKey(value) {
   const name = typeof value === "string" ? value : value?.name;
   const normalized = String(name || "")
@@ -742,6 +770,10 @@ function getFocusedMentionedCars(profile, message) {
     .filter(Boolean);
   if (explicitMatches.length) return explicitMatches;
   if (messageHasPotentialCarMention(message)) return [];
+  const currentTurnProfile = mergeMessageProfileHints({}, message);
+  if (hasDecisionSignals(currentTurnProfile) && !isSupplementalProfileMessageSafe(message)) {
+    return [];
+  }
 
   return uniqueStrings(profile?.mentionedCars || [])
     .map((name) => matchCarByName(name))
@@ -905,6 +937,12 @@ function hasDecisionSignals(profile) {
 function buildDisplayProfile(profile, message, ...extraTexts) {
   const currentTurnProfile = mergeMessageProfileHints({}, message, ...extraTexts);
   const mergedProfile = mergeMessageProfileHints(profile || {}, message, ...extraTexts);
+  const hasCurrentCarMention =
+    Array.isArray(currentTurnProfile.mentionedCars) && currentTurnProfile.mentionedCars.length > 0;
+  const shouldResetMentionedCars =
+    !hasCurrentCarMention &&
+    hasDecisionSignals(currentTurnProfile) &&
+    !isSupplementalProfileMessageSafe(message);
 
   if (
     isSingleCarDeepDiveRequest(mergedProfile, message) &&
@@ -913,6 +951,13 @@ function buildDisplayProfile(profile, message, ...extraTexts) {
     const focusedCars = getFocusedMentionedCars(mergedProfile, message);
     return compactProfile({
       mentionedCars: focusedCars.map((car) => normalizeCarLabel(car)),
+    });
+  }
+
+  if (shouldResetMentionedCars) {
+    return compactProfile({
+      ...mergedProfile,
+      mentionedCars: [],
     });
   }
 
@@ -1983,6 +2028,7 @@ function buildComparisonLocal(session, message, plan, toolResults) {
 
   return {
     intro: `我把 ${a.brand} ${a.name} 和 ${b.brand} ${b.name} 按决策维度展开了，方便你直接进入取舍。`,
+    carNames: [`${a.brand} ${a.name}`, `${b.brand} ${b.name}`],
     decision_focus: focus,
     dimensions: [
       { label: "价格", a: a.price, b: b.price },
@@ -2207,6 +2253,7 @@ function fallbackComparisonStructured(toolResults, message) {
   if (cars.length >= 2) {
     return {
       intro: "我先基于目录里的车型信息给你做一版对比。",
+      carNames: [`${cars[0].brand} ${cars[0].name}`, `${cars[1].brand} ${cars[1].name}`],
       dimensions: [
         { label: "价格", a: cars[0].price, b: cars[1].price },
         { label: "续航/能耗", a: cars[0].range, b: cars[1].range },
@@ -2324,6 +2371,11 @@ function sanitizeRecommendationCars(cars, profile, message, limit = 3) {
     limit
   );
   const budgetHint = parseBudgetTextSafe(effectiveProfile?.budget);
+  const wantsSuv = (effectiveProfile?.bodyTypes || []).some((item) => /SUV/i.test(String(item || "")));
+  const wantsSedan = (effectiveProfile?.bodyTypes || []).some((item) =>
+    /轿车|Sedan/i.test(String(item || ""))
+  );
+  const wantsMpv = (effectiveProfile?.bodyTypes || []).some((item) => /MPV/i.test(String(item || "")));
   const normalizedLimit = Math.max(1, Math.min(4, Number(limit) || 3));
   const forcedSingleCarNames = singleFocusedCar?.name ? new Set([singleFocusedCar.name]) : null;
   const forcedCurrentTurnCarNames =
@@ -2338,6 +2390,10 @@ function sanitizeRecommendationCars(cars, profile, message, limit = 3) {
   for (const item of Array.isArray(cars) ? cars : []) {
     const matched = matchCatalogCarByName(item?.name || "");
     if (!matched || matched.brand !== "小鹏") continue;
+    const matchedBodyType = String(matched.bodyType || "");
+    if (wantsSuv && !/SUV/i.test(matchedBodyType)) continue;
+    if (wantsSedan && !/轿车/i.test(matchedBodyType)) continue;
+    if (wantsMpv && !/MPV|六座|七座/i.test(matchedBodyType)) continue;
     if (allowedCarNames.size && !allowedCarNames.has(matched.name)) continue;
     const priceWan = parsePriceWan(matched.price);
     if (budgetHint && priceWan != null && !focusedCarNames.has(matched.name)) {
@@ -2366,6 +2422,10 @@ function sanitizeRecommendationCars(cars, profile, message, limit = 3) {
 
   for (const car of rankedFallback) {
     if (selected.length >= normalizedLimit) break;
+    const fallbackBodyType = String(car.bodyType || "");
+    if (wantsSuv && !/SUV/i.test(fallbackBodyType)) continue;
+    if (wantsSedan && !/轿车/i.test(fallbackBodyType)) continue;
+    if (wantsMpv && !/MPV|六座|七座/i.test(fallbackBodyType)) continue;
     if (allowedCarNames.size && !allowedCarNames.has(car.name)) continue;
     if (used.has(car.name)) continue;
     selected.push({

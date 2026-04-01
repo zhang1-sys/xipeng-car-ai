@@ -316,7 +316,7 @@ function renderPrimaryContent(
     return (
       <div className="space-y-4">
         <ThoughtTracePanel steps={msg.traceSteps} />
-        <ComparisonPanel data={structured} carNames={msg.agent?.profile?.mentionedCars} />
+        <ComparisonPanel data={structured} carNames={structured.carNames || msg.agent?.profile?.mentionedCars} />
         <ConversionBar
           onTestDrive={() => onTestDrive(undefined)}
           onStores={onStores}

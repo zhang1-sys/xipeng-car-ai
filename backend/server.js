@@ -687,6 +687,7 @@ function normalizeTurnForExplicitComparison(text, turn) {
     mode: "comparison",
     structured: {
       intro,
+      carNames: [cars[0].name, cars[1].name],
       decision_focus: ["落地价差异", "续航差异", "适用场景"],
       dimensions: [
         { label: "价格", a: cars[0].price || "待确认", b: cars[1].price || "待确认" },
@@ -762,6 +763,16 @@ function isExplicitComparisonTurn(text) {
   );
 }
 
+function isSingleCarExplainTurn(text) {
+  const raw = String(text || "");
+  return (
+    /(?:讲讲|说说|介绍|详解|详细讲|仔细讲|分析|优缺点|版本|配置|怎么样|如何|值不值得|值得买吗)/i.test(raw) &&
+    /(?:\b[a-z]{1,6}\s*\d+(?:\+|i)?\b|[\u4e00-\u9fa5]{1,6}\s*[a-z]{1,6}\s*\d+(?:\+|i)?|\b(?:g6|g7|g9|x9|p7\+|p7i|p7|m03|mona\s*m03)\b)/i.test(
+      raw
+    )
+  );
+}
+
 function resolveRequestedChatMode(text, session, forcedMode) {
   const hasForcedMode =
     forcedMode === "recommendation" ||
@@ -772,6 +783,7 @@ function resolveRequestedChatMode(text, session, forcedMode) {
 
   if (isExplicitComparisonTurnSafe(text)) return "comparison";
   if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return "service";
+  if (isSingleCarExplainTurn(text)) return "recommendation";
 
   return forcedMode;
 }

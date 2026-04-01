@@ -97,11 +97,20 @@ function inferChatMode(
 ): Exclude<ChatMode, "configurator"> | undefined {
   const raw = text.trim();
   if (!raw) return undefined;
+  const hasCarLikeMention =
+    /(?:\b[a-z]{1,6}\s*\d+(?:\+|i)?\b|[\u4e00-\u9fa5]{1,6}\s*[a-z]{1,6}\s*\d+(?:\+|i)?)/i.test(raw);
 
   if (
     /\bvs\b|对比|比较|哪个好|怎么选|区别|差别|PK|和.*(比|对比|比较)|跟.*(比|对比|比较)/i.test(raw)
   ) {
     return "comparison";
+  }
+
+  if (
+    hasCarLikeMention &&
+    /讲讲|说说|介绍|详解|详细讲|仔细讲|分析|优缺点|版本|配置|怎么样|如何|值不值得|值得买吗/i.test(raw)
+  ) {
+    return "recommendation";
   }
 
   if (
