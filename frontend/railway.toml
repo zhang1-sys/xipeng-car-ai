@@ -4,7 +4,7 @@ watchPatterns = [
 ]
 
 [deploy]
-startCommand = "npm start"
+startCommand = "node server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 180
 restartPolicyType = "ON_FAILURE"
