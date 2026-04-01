@@ -426,6 +426,10 @@ function extractCitySnippetSafe(text) {
   return cleanCityCandidate(fallbackMatch[1]);
 }
 
+function sanitizeCityHint(value) {
+  return extractCitySnippetSafe(String(value || "")) || "";
+}
+
 function buildMemorySummarySafe(profile) {
   const parts = [];
   if (profile.budget) parts.push(`\u9884\u7b97 ${profile.budget}`);
@@ -691,6 +695,44 @@ function messageHasPotentialCarMention(text) {
   return extractPotentialCarQueries(text).length > 0;
 }
 
+function isSupplementalProfileMessageSafeV2(text) {
+  return /(?:\u9884\u7b97|\u4e07|\u5bb6\u5145|\u88c5\u6869|\u5145\u7535|\u57ce\u5e02|\u6211\u5728|\u4eba\u5728|\u901a\u52e4|\u957f\u9014|\u5e26\u5a03|\u5bb6\u5ead|\u7a7a\u95f4|\u667a\u9a7e|\u667a\u80fd\u5316|\u7eed\u822a|SUV|\u8f7f\u8f66|\u516d\u5ea7|\u4e03\u5ea7|\u5e7f\u5dde|\u6df1\u5733|\u4e0a\u6d77|\u5317\u4eac)/i.test(
+    String(text || "")
+  );
+}
+
+function extractGenericSingleCarMentions(text) {
+  const raw = String(text || "");
+  const matches = [
+    ...(raw.match(/[\u4e00-\u9fa5]{1,8}\s*[A-Za-z]{1,6}\s*\d+(?:\+|i)?/g) || []),
+    ...(raw.match(/\b[A-Za-z]{1,6}\s*\d+(?:\+|i)?\b/g) || []),
+    ...(raw.match(/\bmona\s*m[o0]3\b/gi) || []),
+    ...(raw.match(/\bm[o0]3\b/gi) || []),
+  ];
+  return uniqueStrings(matches.map((item) => String(item || "").replace(/\s+/g, "")));
+}
+
+function formatExternalCarLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const compact = raw.replace(/\s+/g, "");
+  const match = compact.match(/^([\u4e00-\u9fa5]{1,8})?([A-Za-z]{1,6}\d+(?:\+|i)?)$/);
+  if (!match) return raw;
+  const brand = match[1] || "";
+  const model = String(match[2] || "").toUpperCase();
+  return [brand, model].filter(Boolean).join(" ").trim();
+}
+
+function extractExternalCarLabel(text) {
+  const generic = extractGenericSingleCarMentions(text);
+  if (!generic.length) return "";
+  for (const item of generic) {
+    if (matchCarByName(item)) continue;
+    return formatExternalCarLabel(item);
+  }
+  return "";
+}
+
 function isSupplementalProfileMessageSafe(text) {
   return /预算|万|家充|装桩|充电|城市|我在|人在|通勤|长途|带娃|家庭|空间|智驾|智能化|续航|SUV|轿车|六座|七座|广州|深圳|上海|北京/.test(
     String(text || "")
@@ -755,9 +797,24 @@ function isComparisonIntentSafe(message) {
 }
 
 function isExplainIntentSafe(message) {
-  return /(\u8bb2\u89e3|\u4ecb\u7ecd|\u8bb2\u8bb2|\u8bf4\u8bf4|\u5206\u6790|\u600e\u4e48\u6837|\u503c\u4e0d\u503c\u5f97|\u9002\u5408\u8c01|\u4f18\u7f3a\u70b9|\u7f3a\u70b9|\u77ed\u677f|\u8be6\u7ec6|\u4ed4\u7ec6\u8bb2|\u5c55\u5f00\u8bb2)/.test(
+  return /(\u8bb2\u89e3|\u4ecb\u7ecd|\u8bb2\u8bb2|\u8bf4\u8bf4|\u5206\u6790|\u600e\u4e48\u6837|\u5982\u4f55|\u503c\u4e0d\u503c\u5f97|\u9002\u5408\u8c01|\u4f18\u7f3a\u70b9|\u7f3a\u70b9|\u77ed\u677f|\u8be6\u7ec6|\u4ed4\u7ec6\u8bb2|\u5c55\u5f00\u8bb2)/.test(
     String(message || "")
   );
+}
+
+function resolveForcedModeForCurrentTurn(forcedMode, message) {
+  const potentialCars = uniqueStrings([
+    ...extractPotentialCarQueries(message),
+    ...findMentionedCars(message).map((car) => normalizeCarLabel(car)),
+  ]);
+  if (
+    forcedMode === "comparison" &&
+    !isComparisonIntentSafe(message) &&
+    potentialCars.length === 1
+  ) {
+    return "recommendation";
+  }
+  return forcedMode;
 }
 
 function isVariantSpecificCarName(name) {
@@ -771,7 +828,7 @@ function getFocusedMentionedCars(profile, message) {
   if (explicitMatches.length) return explicitMatches;
   if (messageHasPotentialCarMention(message)) return [];
   const currentTurnProfile = mergeMessageProfileHints({}, message);
-  if (hasDecisionSignals(currentTurnProfile) && !isSupplementalProfileMessageSafe(message)) {
+  if (hasDecisionSignals(currentTurnProfile) && !isSupplementalProfileMessageSafeV2(message)) {
     return [];
   }
 
@@ -942,7 +999,7 @@ function buildDisplayProfile(profile, message, ...extraTexts) {
   const shouldResetMentionedCars =
     !hasCurrentCarMention &&
     hasDecisionSignals(currentTurnProfile) &&
-    !isSupplementalProfileMessageSafe(message);
+    !isSupplementalProfileMessageSafeV2(message);
 
   if (
     isSingleCarDeepDiveRequest(mergedProfile, message) &&
@@ -1250,7 +1307,11 @@ function runFindStoresTool({ session, storesPayload, args, message }) {
     session.profile.mentionedCars?.map((item) => matchCarByName(item)?.brand).find(Boolean)
   );
   const currentCity = extractCitySnippetSafe(message);
-  const city = pickFirstString(args.city, currentCity, session.profile.city);
+  const city = pickFirstString(
+    sanitizeCityHint(args.city),
+    currentCity,
+    sanitizeCityHint(session.profile.city)
+  );
   const normalizedCity = normalizeRegionToken(city);
   const filtered = list.filter((store) => {
     if (brand && store.brand !== brand) return false;
@@ -1455,7 +1516,7 @@ function normalizePlannerProfile(raw) {
   if (!raw || typeof raw !== "object") return {};
   return compactProfile({
     budget: pickFirstString(raw.budget),
-    city: pickFirstString(raw.city),
+    city: sanitizeCityHint(raw.city),
     charging: pickFirstString(raw.charging),
     seats: pickFirstString(raw.seats),
     bodyTypes: raw.body_types || raw.bodyTypes,
@@ -1503,7 +1564,8 @@ function normalizePlan(raw, fallbackMode) {
 }
 
 function fallbackPlan({ message, forcedMode, session }) {
-  const mode = ALLOWED_MODES.has(forcedMode) ? forcedMode : detectIntent(message);
+  const effectiveForcedMode = resolveForcedModeForCurrentTurn(forcedMode, message);
+  const mode = ALLOWED_MODES.has(effectiveForcedMode) ? effectiveForcedMode : detectIntent(message);
   const toolCalls = [{ name: "recall_memory", args: {} }];
   if (mode === "recommendation") toolCalls.push({ name: "search_catalog", args: { limit: 3 } });
   if (mode === "comparison") {
@@ -1512,7 +1574,7 @@ function fallbackPlan({ message, forcedMode, session }) {
       args: { carNames: findMentionedCars(message).map((car) => normalizeCarLabel(car)) },
     });
   }
-  if (/门店|试驾|到店|城市|附近|最近/.test(message) || extractCitySnippetSafe(message)) {
+  if (/门店|试驾|到店|附近|最近|预约/.test(message)) {
     toolCalls.push({ name: "find_stores", args: { limit: 3 } });
   }
   if (
@@ -1557,7 +1619,8 @@ function buildPolicyBackedFallbackPlan({ message, forcedMode, session }) {
 }
 
 async function planTurn({ client, model, temperature, session, message, forcedMode, storesPayload }) {
-  const fallback = buildPolicyBackedFallbackPlan({ message, forcedMode, session });
+  const effectiveForcedMode = resolveForcedModeForCurrentTurn(forcedMode, message);
+  const fallback = buildPolicyBackedFallbackPlan({ message, forcedMode: effectiveForcedMode, session });
   const fallbackStageCode =
     fallback.mode === "recommendation"
       ? "recommend"
@@ -1597,7 +1660,7 @@ async function planTurn({ client, model, temperature, session, message, forcedMo
               message,
               "</user_input>",
               "<forced_mode>",
-              forcedMode || "",
+              effectiveForcedMode || "",
               "</forced_mode>",
               "<memory_profile>",
               JSON.stringify(session.profile || {}),
@@ -1618,7 +1681,7 @@ async function planTurn({ client, model, temperature, session, message, forcedMo
               JSON.stringify(
                 recentMessagesForTurn(
                   session.messages,
-                  ALLOWED_MODES.has(forcedMode) ? forcedMode : detectIntent(message),
+                  ALLOWED_MODES.has(effectiveForcedMode) ? effectiveForcedMode : detectIntent(message),
                   message,
                   session.profile || {}
                 )
@@ -1661,8 +1724,8 @@ async function planTurn({ client, model, temperature, session, message, forcedMo
     const raw = completion.choices[0]?.message?.content?.trim() || "{}";
     const parsed = safeParseJson(raw) || {};
     const normalizedPlan = normalizePlan(parsed, fallback.mode);
-    if (ALLOWED_MODES.has(forcedMode)) {
-      normalizedPlan.mode = forcedMode;
+    if (ALLOWED_MODES.has(effectiveForcedMode)) {
+      normalizedPlan.mode = effectiveForcedMode;
     }
     normalizedPlan.toolCalls = enforceToolRoutingPolicy({
       policy: fallbackPolicy,
@@ -2563,6 +2626,105 @@ function ensureRecommendationStructured(structured, rawText, profile = {}, messa
   };
 }
 
+function ensureRecommendationStructuredV2(structured, rawText, profile = {}, message = "") {
+  const effectiveProfile = buildDisplayProfile(profile, message, rawText);
+  const comparisonDriven = isDetailedDecisionRequestSafe(message);
+  const singleFocusedCar = getSingleFocusedCar(effectiveProfile, message);
+  const externalCarLabel = extractExternalCarLabel(message);
+  if (structured && Array.isArray(structured.cars) && structured.cars.length) {
+    const cars = sanitizeRecommendationCars(structured.cars, effectiveProfile, message, 3);
+    const fallbackCars = sanitizeRecommendationCars(
+      buildRankedCatalog(effectiveProfile || {}, message),
+      effectiveProfile,
+      message,
+      3
+    );
+    const displayCars = cars.length ? cars : fallbackCars;
+    const nextSteps = uniqueStrings([
+      ...sanitizeRecommendationTextList(structured.next_steps, displayCars),
+      ...buildRecommendationNextStepsSafe(displayCars, effectiveProfile, message),
+      singleFocusedCar && displayCars[0] ? `继续确认 ${displayCars[0].name} 的版本、续航和智驾差异` : "",
+    ]).slice(0, 4);
+    const followups = uniqueStrings([
+      ...sanitizeRecommendationTextList(structured.followups, displayCars),
+      ...(singleFocusedCar
+        ? [
+            displayCars[0] ? `继续分析 ${displayCars[0].name} 哪个版本更值` : "",
+            displayCars[0] ? `帮我比较 ${displayCars[0].name} 不同版本怎么选` : "",
+            displayCars[0] ? `约 ${displayCars[0].name} 本周试驾` : "",
+          ]
+        : buildRecommendationFollowupsSafe(displayCars, effectiveProfile)),
+    ]).slice(0, 4);
+    const compareNote = externalCarLabel
+      ? `如果你重点在看 ${externalCarLabel}，建议把预算、空间、智能化和补能便利性一起看；它的最新价格、配置和交付信息请以对应品牌官方发布为准，我这边继续给你收敛到可直接试驾的小鹏候选。`
+      : comparisonDriven && displayCars.length >= 2
+        ? displayCars
+            .slice(0, 3)
+            .map((car) => `${car.name} 更适合${String(car.bestFor || "").replace(/^更适合/, "")}`)
+            .join("；")
+        : displayCars[0] && singleFocusedCar
+          ? `这次先围绕 ${displayCars[0].name} 单车型展开，重点看定位、适合人群、核心优势和需要留意的取舍。`
+          : structured.compare_note;
+
+    return {
+      ...structured,
+      intro: externalCarLabel
+        ? `目前 ${externalCarLabel} 不在小鹏车型目录里，我先给你一个简要判断，再把话题拉回到更接近它定位的小鹏车型。`
+        : structured.intro,
+      cars: singleFocusedCar ? displayCars.slice(0, 1) : displayCars,
+      compare_note: compareNote,
+      next_steps: nextSteps,
+      final_one_liner: externalCarLabel
+        ? `如果你想继续往下聊，我建议直接拿 ${externalCarLabel} 去对照 G6、G7 或 G9 的预算带和智能化取向。`
+        : structured.final_one_liner,
+      followups: externalCarLabel
+        ? uniqueStrings([
+            `把 ${externalCarLabel} 和 G6 放在一起看落地价与续航`,
+            `如果更看重城区智能化，继续比较 G7 和 ${externalCarLabel}`,
+            `告诉我你的预算和是否能装家充，我帮你缩到 1-2 台小鹏`,
+            ...followups,
+          ]).slice(0, 4)
+        : followups,
+    };
+  }
+
+  const rawSnippet = String(rawText || "").slice(0, 180);
+  return {
+    intro: externalCarLabel
+      ? `目前 ${externalCarLabel} 不在小鹏车型目录里，我先给你一个简要判断，再把话题拉回到更接近它定位的小鹏车型。`
+      : rawSnippet && !rawSnippet.startsWith("{")
+        ? rawSnippet
+        : "我先给你一版可继续收窄的初筛建议，具体以品牌官网和门店信息为准。",
+    cars: sanitizeRecommendationCars(getCars().slice(0, 3), effectiveProfile, message, 3).map((car) => ({
+      brand: car.brand,
+      name: car.name,
+      image: car.image,
+      price: car.price,
+      range: car.range,
+      smart: car.smart,
+      reasons: car.reasons,
+      tradeoffs: car.tradeoffs,
+    })),
+    compare_note: externalCarLabel
+      ? `如果你愿意，我可以继续按 ${externalCarLabel} 的预算带、空间取向和智能化预期，把小鹏候选收敛到 1-2 台。`
+      : "建议进一步补充预算、城市和补能条件。",
+    final_one_liner: externalCarLabel
+      ? `如果你想继续往下聊，我建议直接拿 ${externalCarLabel} 去对照 G6、G7 或 G9 的预算带和智能化取向。`
+      : "你继续补充约束条件，我可以继续把范围收窄。",
+    followups: externalCarLabel
+      ? [
+          `把 ${externalCarLabel} 和 G6 放在一起看落地价与续航`,
+          `如果更看重城区智能化，继续比较 G7 和 ${externalCarLabel}`,
+          "告诉我你的预算和是否能装家充，我帮你缩到 1-2 台小鹏",
+        ]
+      : [
+          "我的预算 20 万左右，主要城市通勤",
+          "我人在广州，家里不能装桩",
+          "继续比较其中两款",
+        ],
+  };
+}
+
 function conciseList(items, max = 2) {
   return uniqueStrings(items || []).slice(0, max);
 }
@@ -2702,7 +2864,12 @@ async function synthesizeAnswer({
     buildFollowups(mode, session, plan, toolResults)
   );
   if (mode === "recommendation") {
-    fallbackWithFollowups = ensureRecommendationStructured(fallbackWithFollowups, "", session.profile, message);
+    fallbackWithFollowups = ensureRecommendationStructuredV2(
+      fallbackWithFollowups,
+      "",
+      session.profile,
+      message
+    );
   }
 
   if (!client || !model) {
@@ -2795,7 +2962,7 @@ async function synthesizeAnswer({
     }
 
     if (mode === "recommendation") {
-      structured = ensureRecommendationStructured(
+      structured = ensureRecommendationStructuredV2(
         hasParsedStructured
           ? { ...localStructured, ...structured }
           : { ...structured, ...localStructured },
@@ -2932,7 +3099,8 @@ async function runAgentTurn({
     session.userMemorySummary || buildMemorySummarySafe(session.userProfile || {});
   session.taskMemory = compactTaskMemory(session.taskMemory);
   session.profile = mergeProfile(session.userProfile || {}, session.profile || {});
-  const requestedMode = ALLOWED_MODES.has(forcedMode) ? forcedMode : detectIntent(message);
+  const effectiveForcedMode = resolveForcedModeForCurrentTurn(forcedMode, message);
+  const requestedMode = ALLOWED_MODES.has(effectiveForcedMode) ? effectiveForcedMode : detectIntent(message);
   const heuristicProfile = extractProfileFromTextSafe(message, brands);
   session.profile = mergeProfile(session.profile, heuristicProfile);
   session.memorySummary = buildMemorySummarySafe(session.profile);

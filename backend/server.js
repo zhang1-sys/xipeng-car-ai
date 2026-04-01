@@ -773,6 +773,18 @@ function isSingleCarExplainTurn(text) {
   );
 }
 
+function isSingleCarExplainTurnSafe(text) {
+  const raw = String(text || "");
+  return (
+    /(?:\u8bb2\u8bb2|\u8bf4\u8bf4|\u4ecb\u7ecd|\u8be6\u89e3|\u8be6\u7ec6\u8bb2|\u4ed4\u7ec6\u8bb2|\u5206\u6790|\u4f18\u7f3a\u70b9|\u7248\u672c|\u914d\u7f6e|\u600e\u4e48\u6837|\u5982\u4f55|\u503c\u4e0d\u503c\u5f97|\u503c\u5f97\u4e70\u5417)/i.test(
+      raw
+    ) &&
+    /(?:\b[a-z]{1,6}\s*\d+(?:\+|i)?\b|[\u4e00-\u9fa5]{1,8}\s*[a-z]{1,6}\s*\d+(?:\+|i)?|\b(?:g6|g7|g9|x9|p7\+|p7i|p7|m03|mona\s*m03)\b)/i.test(
+      raw
+    )
+  );
+}
+
 function resolveRequestedChatMode(text, session, forcedMode) {
   const hasForcedMode =
     forcedMode === "recommendation" ||
@@ -783,7 +795,7 @@ function resolveRequestedChatMode(text, session, forcedMode) {
 
   if (isExplicitComparisonTurnSafe(text)) return "comparison";
   if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return "service";
-  if (isSingleCarExplainTurn(text)) return "recommendation";
+  if (isSingleCarExplainTurnSafe(text)) return "recommendation";
 
   return forcedMode;
 }
