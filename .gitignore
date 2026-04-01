@@ -33,7 +33,8 @@ desktop.ini
 *.swo
 
 # Backend temp/data
-backend/persistence/
+backend/persistence/*
+!backend/persistence/*.js
 backend/data/
 backend/tmp-*
 backend/db/*.db
