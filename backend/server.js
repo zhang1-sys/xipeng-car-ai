@@ -590,6 +590,12 @@ function isSupplementalProfileMessage(text) {
   );
 }
 
+function normalizeIntentText(text) {
+  return String(text || "")
+    .replace(/(?:^|\n)\s*(?:顾问回复|AI购车顾问|购车顾问回复)\s*$/gmu, "")
+    .trim();
+}
+
 /* function hasStrongConversionIntent(text) {
   return /试驾|预约|门店|4s|4S|到店|最近.*店|哪家店|最快.*试驾|顾问|跟进|留资|联系我/.test(
     String(text || "")
@@ -605,22 +611,41 @@ function isSupplementalProfileMessage(text) {
 
 */
 function hasStrongConversionIntent(text) {
-  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u95e8\u5e97|4s|4S|\u5230\u5e97|\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u987e\u95ee|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211)/.test(
-    String(text || "")
-  );
+  const raw = normalizeIntentText(text);
+  const explicitConversionAction =
+    /(?:(?:\u9884\u7ea6|\u5b89\u6392|\u7ea6|\u60f3|\u51c6\u5907|\u53bb|\u5230\u5e97|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44|\u56de\u7535).{0,6}(?:\u8bd5\u9a7e|\u95e8\u5e97|\u987e\u95ee)|(?:\u8bd5\u9a7e|\u95e8\u5e97|\u5230\u5e97).{0,6}(?:\u9884\u7ea6|\u5b89\u6392|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44)|(?:\u8054\u7cfb|\u8ba9|\u5e2e\u6211|\u5b89\u6392|\u8f6c).{0,6}\u987e\u95ee|\u987e\u95ee.{0,6}(?:\u8ddf\u8fdb|\u8054\u7cfb|\u56de\u7535)|(?:\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211|\u56de\u7535))/u.test(
+      raw
+    );
+  if (explicitConversionAction) return true;
+
+  const exploratoryRecommendation =
+    /(?:\u63a8\u8350|\u5e2e\u6211\u63a8\u8350|\u51e0\u6b3e|\u54ea\u51e0\u6b3e|\u503c\u5f97|\u91cd\u70b9\u8bd5\u9a7e|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u9884\u7b97|\u8f66\u578b|\u5c0f\u9e4f\u8f66\u578b)/u.test(
+      raw
+    );
+  if (exploratoryRecommendation) return false;
+
+  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u95e8\u5e97|4s|4S|\u5230\u5e97)/u.test(raw);
 }
 
 function hasAdvisorFollowupIntent(text) {
-  return /(?:\u987e\u95ee|\u8ddf\u8fdb|\u8054\u7cfb\u6211|\u56de\u7535)/.test(String(text || ""));
+  return /(?:(?:\u8054\u7cfb|\u8ba9|\u5e2e\u6211|\u5b89\u6392|\u8f6c).{0,6}\u987e\u95ee|\u987e\u95ee.{0,6}(?:\u8ddf\u8fdb|\u8054\u7cfb|\u56de\u7535)|\u8ddf\u8fdb|\u8054\u7cfb\u6211|\u56de\u7535)/u.test(
+    normalizeIntentText(text)
+  );
 }
 
 function hasTestDriveIntent(text) {
-  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u5230\u5e97)/.test(String(text || ""));
+  return /(?:\u8bd5\u9a7e|\u9884\u7ea6|\u5230\u5e97)/u.test(normalizeIntentText(text));
 }
 
 function hasStrongServiceIntent(text) {
   return /保养|充电|补能|保险|事故|OTA|车机|提车|交付|续航|电耗|家充|故障|异响|售后|救援/.test(
-    String(text || "")
+    normalizeIntentText(text)
+  );
+}
+
+function hasExploratoryRecommendationIntent(text) {
+  return /(?:\u63a8\u8350|\u5e2e\u6211\u63a8\u8350|\u51e0\u6b3e|\u54ea\u51e0\u6b3e|\u503c\u5f97|\u91cd\u70b9\u8bd5\u9a7e|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u9884\u7b97|\u901a\u52e4|\u5bb6\u7528|\u5468\u672b|\u51fa\u6e38|\u5c0f\u9e4f\u8f66\u578b)/u.test(
+    normalizeIntentText(text)
   );
 }
 
@@ -634,7 +659,7 @@ function shouldShowRecommendationUi(text, turn) {
   if (!cars.length) return false;
 
   return /(?:\u63a8\u8350|\u4e70\u8f66|\u9009\u8f66|\u8d2d\u8f66|\u9884\u7b97|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u503c\u5f97\u4e70|\u8f66\u578b|\u8bf4\u8bf4|\u4ecb\u7ecd|\u5bf9\u6bd4|\u6bd4\u8f83|\u54ea\u4e2a\u597d)/.test(
-    String(text || "")
+    normalizeIntentText(text)
   );
 }
 
@@ -729,6 +754,7 @@ function storeMatchesUserCity(store, userCity) {
 function resolveTurnMode(text, session) {
   const detected = detectIntent(text);
   if (detected !== "service") return detected;
+  if (hasExploratoryRecommendationIntent(text) && !hasStrongConversionIntent(text)) return "recommendation";
   if (hasStrongConversionIntent(text)) return "service";
   if (hasStrongServiceIntent(text)) return "service";
 
@@ -794,6 +820,7 @@ function resolveRequestedChatMode(text, session, forcedMode) {
   if (!hasForcedMode) return resolveTurnMode(text, session);
 
   if (isExplicitComparisonTurnSafe(text)) return "comparison";
+  if (hasExploratoryRecommendationIntent(text) && !hasStrongConversionIntent(text)) return "recommendation";
   if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return "service";
   if (isSingleCarExplainTurnSafe(text)) return "recommendation";
 
@@ -1748,8 +1775,13 @@ app.post("/api/chat", async (req, res) => {
     const session = sessions.get(sessionId);
     attachUserProfileToSession(session, incomingClientProfileId);
     const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
-    const mode =
-      hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
+    const recommendationExploration =
+      hasExploratoryRecommendationIntent(text) &&
+      !hasStrongConversionIntent(text) &&
+      !hasStrongServiceIntent(text);
+    const mode = recommendationExploration
+      ? "recommendation"
+      : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
         ? "service"
         : requestedMode;
 
@@ -1878,8 +1910,13 @@ app.post("/api/chat/stream", async (req, res) => {
     forcedMode === "comparison" ||
     forcedMode === "service";
   const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
-  const resolvedMode =
-    hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
+  const recommendationExploration =
+    hasExploratoryRecommendationIntent(text) &&
+    !hasStrongConversionIntent(text) &&
+    !hasStrongServiceIntent(text);
+  const resolvedMode = recommendationExploration
+    ? "recommendation"
+    : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
       ? "service"
       : requestedMode;
 

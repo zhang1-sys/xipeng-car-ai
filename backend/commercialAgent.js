@@ -273,9 +273,15 @@ function buildTaskMemoryProfileHints(taskMemory) {
   });
 }
 
+function hasAdvisorFollowupSignal(text) {
+  return /(?:(?:联系|让|帮我|安排|转).{0,6}顾问|顾问.{0,6}(?:跟进|联系|回电)|跟进|联系我|回电)/u.test(
+    String(text || "")
+  );
+}
+
 function inferTaskTypeFromTurn(mode, message, previousTaskType) {
   const text = String(message || "");
-  if (/顾问|跟进|联系我|回电/.test(text)) return "advisor_followup";
+  if (hasAdvisorFollowupSignal(text)) return "advisor_followup";
   if (/试驾|预约|到店/.test(text)) return "test_drive";
   if (/配置|选配/.test(text)) return "configure";
   if (mode === "comparison") return "compare";
@@ -308,7 +314,7 @@ function deriveTaskMemory({
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .join(" ");
-  const structuredTaskType = /顾问|跟进|联系我|回电/.test(structuredIntentText)
+  const structuredTaskType = hasAdvisorFollowupSignal(structuredIntentText)
     ? "advisor_followup"
     : /试驾|预约|到店/.test(structuredIntentText)
       ? "test_drive"
@@ -2249,7 +2255,9 @@ function buildScopedRecommendationFallback(toolResults, session, message) {
       : inferMissingInfo(profile, "recommendation", message);
   const searchResult = toolResults.find((item) => item.tool === "search_catalog");
   const cars = sanitizeRecommendationCars(
-    Array.isArray(searchResult?.data) ? searchResult.data : getCars().slice(0, 3),
+    Array.isArray(searchResult?.data) && searchResult.data.length
+      ? searchResult.data
+      : buildFallbackRecommendationCandidates(profile, message, 3),
     profile,
     message,
     3
@@ -2564,6 +2572,77 @@ function buildRecommendationFollowupsSafe(cars, profile) {
   return uniqueStrings(followups).slice(0, 4);
 }
 
+function buildFallbackRecommendationCandidates(profile, message, limit = 3) {
+  return selectRecommendationCandidates(
+    buildRankedCatalog(profile || {}, message),
+    profile || {},
+    message,
+    limit
+  );
+}
+
+function looksLikeServiceKnowledgeLeak(text) {
+  return /(?:^|\n)#\s+[^\n]+\n(?:\n)?-\s*(?:\u9636\u6bb5|stage)\s*:|##\s*(?:\u6458\u8981|\u5173\u952e\u8bcd|\u64cd\u4f5c\u5efa\u8bae)/iu.test(
+    String(text || "")
+  );
+}
+
+function isServiceStructuredPayload(structured) {
+  if (!structured || typeof structured !== "object") return false;
+  const cars = Array.isArray(structured.cars) ? structured.cars.filter(Boolean) : [];
+  if (cars.length) return false;
+
+  return Boolean(
+    (Array.isArray(structured.steps) && structured.steps.length) ||
+      (Array.isArray(structured.notes) && structured.notes.length) ||
+      (typeof structured.title === "string" && structured.title.trim()) ||
+      (typeof structured.diagnosis === "string" && structured.diagnosis.trim())
+  );
+}
+
+function hasExploratoryRecommendationIntentForRecovery(text) {
+  return /(?:推荐|帮我推荐|几款|哪几款|值得|重点试驾|适合我|帮我选|预算|通勤|家用|周末|出游|小鹏车型)/u.test(
+    String(text || "")
+  );
+}
+
+function shouldRecoverRecommendationTurn(message, mode, structured, reply) {
+  const hasRecommendationIntent =
+    detectIntent(message) === "recommendation" ||
+    hasExploratoryRecommendationIntentForRecovery(message);
+  if (!hasRecommendationIntent) return false;
+  if (mode !== "recommendation") return true;
+
+  const cars = Array.isArray(structured?.cars) ? structured.cars.filter(Boolean) : [];
+  if (cars.length) return false;
+
+  return isServiceStructuredPayload(structured) || looksLikeServiceKnowledgeLeak(reply);
+}
+
+function recoverRecommendationTurn({ message, profile, structured, reply, toolResults }) {
+  const fallbackStructured = buildScopedRecommendationFallback(
+    toolResults,
+    { profile: profile || {} },
+    message
+  );
+  const merged =
+    structured && typeof structured === "object" && Array.isArray(structured.cars) && structured.cars.length
+      ? { ...fallbackStructured, ...structured }
+      : fallbackStructured;
+  const nextStructured = ensureRecommendationStructuredV2(
+    merged,
+    reply,
+    profile || {},
+    message
+  );
+
+  return {
+    mode: "recommendation",
+    structured: nextStructured,
+    reply: renderReply("recommendation", nextStructured, reply),
+  };
+}
+
 function ensureRecommendationStructured(structured, rawText, profile = {}, message = "") {
   const effectiveProfile = buildDisplayProfile(profile, message, rawText);
   const comparisonDriven = isDetailedDecisionRequestSafe(message);
@@ -2606,7 +2685,12 @@ function ensureRecommendationStructured(structured, rawText, profile = {}, messa
     intro: rawSnippet && !rawSnippet.startsWith("{")
       ? rawSnippet
       : "我先给你一版可继续收窄的初筛推荐，具体以品牌官网和门店信息为准。",
-    cars: sanitizeRecommendationCars(getCars().slice(0, 3), effectiveProfile, message, 3).map((car) => ({
+    cars: sanitizeRecommendationCars(
+      buildFallbackRecommendationCandidates(effectiveProfile, message, 3),
+      effectiveProfile,
+      message,
+      3
+    ).map((car) => ({
       brand: car.brand,
       name: car.name,
       image: car.image,
@@ -2695,7 +2779,12 @@ function ensureRecommendationStructuredV2(structured, rawText, profile = {}, mes
       : rawSnippet && !rawSnippet.startsWith("{")
         ? rawSnippet
         : "我先给你一版可继续收窄的初筛建议，具体以品牌官网和门店信息为准。",
-    cars: sanitizeRecommendationCars(getCars().slice(0, 3), effectiveProfile, message, 3).map((car) => ({
+    cars: sanitizeRecommendationCars(
+      buildFallbackRecommendationCandidates(effectiveProfile, message, 3),
+      effectiveProfile,
+      message,
+      3
+    ).map((car) => ({
       brand: car.brand,
       name: car.name,
       image: car.image,
@@ -3104,9 +3193,9 @@ async function runAgentTurn({
   const heuristicProfile = extractProfileFromTextSafe(message, brands);
   session.profile = mergeProfile(session.profile, heuristicProfile);
   session.memorySummary = buildMemorySummarySafe(session.profile);
-  const shouldHydrateTaskContext = /试驾|预约|门店|顾问|跟进|联系我|到店/.test(
+  const shouldHydrateTaskContext = /试驾|预约|门店|到店/.test(
     String(message || "")
-  );
+  ) || hasAdvisorFollowupSignal(message);
   const taskProfileHints = shouldHydrateTaskContext
     ? buildTaskMemoryProfileHints(session.taskMemory)
     : {};
@@ -3241,13 +3330,13 @@ async function runAgentTurn({
     }
   }
 
-  const mode = plan.mode;
+  const plannedMode = plan.mode;
   const synthesisStartedAt = Date.now();
   const { structured, reply, source } = await synthesizeAnswer({
     client,
     model,
     temperature,
-    mode,
+    mode: plannedMode,
     message,
     session: turnSession,
     plan,
@@ -3265,6 +3354,27 @@ async function runAgentTurn({
     });
   }
 
+  let mode = plannedMode;
+  let finalStructured = structured;
+  let finalReply = reply;
+  if (shouldRecoverRecommendationTurn(message, mode, finalStructured, finalReply)) {
+    const recovered = recoverRecommendationTurn({
+      message,
+      profile: turnProfile,
+      structured: finalStructured,
+      reply: finalReply,
+      toolResults,
+    });
+    mode = recovered.mode;
+    finalStructured = recovered.structured;
+    finalReply = recovered.reply;
+    stageCode = deriveAgentStageCodeForCommercial({
+      mode,
+      profile: turnProfile,
+      message,
+    });
+  }
+
   session.lastMode = mode;
   session.turns = [...session.turns, {
     at: new Date().toISOString(),
@@ -3276,8 +3386,8 @@ async function runAgentTurn({
   const missingInfo = inferMissingInfo(turnProfile, mode, message);
   const nextActions = uniqueStrings([
     ...(plan?.clarify?.needed && plan?.clarify?.question ? [plan.clarify.question] : []),
-    ...(structured?.next_steps || []),
-    ...(structured?.followups || []),
+    ...(finalStructured?.next_steps || []),
+    ...(finalStructured?.followups || []),
   ]).slice(0, 4);
   const status = deriveSharedAgentStatus({
     stageCode,
@@ -3293,7 +3403,7 @@ async function runAgentTurn({
     mode,
     message,
     plan,
-    structured,
+    structured: finalStructured,
     status: status.code,
   });
   routingPolicy = buildRoutingPolicy({
@@ -3301,7 +3411,7 @@ async function runAgentTurn({
     stageCode,
     message,
     profile: turnProfile,
-    structured,
+    structured: finalStructured,
     nextActions,
   });
   const executionMode =
@@ -3336,15 +3446,15 @@ async function runAgentTurn({
     [
       ...(Array.isArray(session.messages) ? session.messages : []),
       { role: "user", content: message, mode },
-      { role: "assistant", content: reply, mode },
+      { role: "assistant", content: finalReply, mode },
     ],
     24
   );
 
   return {
-    reply,
+    reply: finalReply,
     mode,
-    structured,
+    structured: finalStructured,
     agent: buildAgentPayload({
       stageCode,
       confidence: buildAgentConfidence(turnProfile, mode, toolResults),
@@ -3358,7 +3468,7 @@ async function runAgentTurn({
       profile: compactProfile(turnProfile),
       missingInfo,
       blockers: status.code === "waiting_user" ? missingInfo : [],
-      checklist: buildMissionChecklist(turnProfile, mode, message, structured),
+      checklist: buildMissionChecklist(turnProfile, mode, message, finalStructured),
       nextActions,
       toolCalls: toolResults.map((item) => item.tool),
       toolsUsed: toolResults.map((item) => item.tool),

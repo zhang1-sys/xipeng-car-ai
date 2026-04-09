@@ -369,6 +369,62 @@ async function main() {
   assert(secondTurn.response.ok, "second turn request failed");
   assertExpectedModeOrTimeout(secondTurn, "recommendation");
 
+  const exploratoryTestDriveRecommendation = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u9884\u7b97 20 \u4e07\u5de6\u53f3\uff0c\u4e3b\u8981\u5728\u57ce\u5e02\u901a\u52e4\uff0c\u5468\u672b\u5076\u5c14\u5e26\u5bb6\u4eba\u51fa\u6e38\uff0c\u5e2e\u6211\u63a8\u8350 2 \u5230 3 \u6b3e\u503c\u5f97\u91cd\u70b9\u8bd5\u9a7e\u7684\u5c0f\u9e4f\u8f66\u578b\u3002",
+    mode: "service",
+  });
+  assert(exploratoryTestDriveRecommendation.response.ok, "exploratory recommendation request failed");
+  const exploratoryRecommendationStatus = assertExpectedModeOrTimeout(
+    exploratoryTestDriveRecommendation,
+    "recommendation"
+  );
+  if (exploratoryRecommendationStatus === "expected") {
+    assert(
+      exploratoryTestDriveRecommendation.json.uiHints?.showRecommendationCards === true,
+      "exploratory recommendation should still render recommendation cards"
+    );
+    assert(
+      Array.isArray(exploratoryTestDriveRecommendation.json.structured?.cars) &&
+        exploratoryTestDriveRecommendation.json.structured.cars.length >= 2,
+      "exploratory recommendation should keep recommendation cars"
+    );
+    assert(
+      !/(?:^|\n)#\s*首次购车需求梳理|##\s*操作建议/u.test(
+        String(exploratoryTestDriveRecommendation.json.reply || "")
+      ),
+      "exploratory recommendation should not leak raw service-knowledge markdown"
+    );
+  }
+
+  const pastedAdvisorReplyLabelRecommendation = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u9884\u7b97 18 \u5230 22 \u4e07\uff0c\u5de5\u4f5c\u65e5\u57ce\u5e02\u901a\u52e4\uff0c\u5468\u672b\u5e26\u5bb6\u4eba\u77ed\u9014\u51fa\u884c\uff0c\u63a8\u8350\u4e24\u6b3e\u9002\u5408\u91cd\u70b9\u8bd5\u9a7e\u7684\u5c0f\u9e4f\u8f66\u578b\u3002\n\u987e\u95ee\u56de\u590d",
+    mode: "service",
+  });
+  assert(pastedAdvisorReplyLabelRecommendation.response.ok, "pasted advisor reply label request failed");
+  const pastedAdvisorReplyLabelStatus = assertExpectedModeOrTimeout(
+    pastedAdvisorReplyLabelRecommendation,
+    "recommendation"
+  );
+  if (pastedAdvisorReplyLabelStatus === "expected") {
+    assert(
+      pastedAdvisorReplyLabelRecommendation.json.uiHints?.showRecommendationCards === true,
+      "pasted advisor reply label should still render recommendation cards"
+    );
+    assert(
+      Array.isArray(pastedAdvisorReplyLabelRecommendation.json.structured?.cars) &&
+        pastedAdvisorReplyLabelRecommendation.json.structured.cars.length >= 2,
+      "pasted advisor reply label should still keep recommendation cars"
+    );
+    assert(
+      !/(?:^|\n)#\s*首次购车需求梳理|##\s*操作建议/u.test(
+        String(pastedAdvisorReplyLabelRecommendation.json.reply || "")
+      ),
+      "pasted advisor reply label should not leak raw service-knowledge markdown"
+    );
+  }
+
   const isolatedSessionTurn1 = await postJson(`${BASE}/api/chat`, {
     message: "讲讲G9，预算20万",
   });
