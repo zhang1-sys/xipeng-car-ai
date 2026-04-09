@@ -21,6 +21,25 @@ function hasSingleCarExplainIntent(message) {
   );
 }
 
+function hasServiceGuidanceIntent(message) {
+  const m = String(message || "").trim();
+  if (!m) return false;
+
+  const serviceOnlyTopic =
+    /\u4fdd\u517b|\u7ef4\u4fdd|\u7ef4\u4fee|\u4fdd\u9669|\u4e8b\u6545|\u7406\u8d54|OTA|\u8f66\u673a|\u63d0\u8f66|\u4ea4\u4ed8|\u6545\u969c|\u5f02\u54cd|\u552e\u540e|\u6551\u63f4/i.test(
+      m
+    );
+  if (serviceOnlyTopic) return true;
+
+  const usageServiceTopic =
+    /\u8865\u80fd|\u7eed\u822a|\u5145\u7535|\u5bb6\u5145|\u5145\u7535\u6869|\u51ac\u5b63|\u51ac\u5929/i.test(m);
+  if (!usageServiceTopic) return false;
+
+  return /(?:\u600e\u4e48|\u5982\u4f55|\u600e\u4e48\u7528\u8f66|\u600e\u4e48\u5904\u7406|\u600e\u4e48\u529e|\u6ce8\u610f\u4ec0\u4e48|\u8981\u6ce8\u610f|\u6ce8\u610f\u4e8b\u9879|\u5e94\u8be5|\u65e5\u5e38|\u6389\u5f97\u5feb|\u4e3a\u4ec0\u4e48|\u6d41\u7a0b|\u6b65\u9aa4|\u9700\u4e0d\u9700\u8981|\u80fd\u4e0d\u80fd|\u662f\u5426)/i.test(
+    m
+  );
+}
+
 /**
  * @param {string} message
  * @returns {'recommendation'|'comparison'|'service'}
@@ -30,7 +49,7 @@ function detectIntent(message) {
   if (!m) return "service";
   const lower = m.toLowerCase();
   const comparisonIntentSafe =
-    /\bvs\b|\u5bf9\u6bd4|\u6bd4\u8f83|pk|\u8fd8\u662f|\u54ea\u4e2a\u597d|\u9009\u54ea|\u5dee\u522b|\u533a\u522b/i.test(
+    /\bvs\b|\bcompare\b|\bcomparison\b|\u5bf9\u6bd4|\u6bd4\u8f83|pk|\u8fd8\u662f|\u54ea\u4e2a\u597d|\u9009\u54ea|\u5dee\u522b|\u533a\u522b|which\s+is\s+better|better\s+choice|choose\s+between/i.test(
       lower
     ) ||
     /(\u548c|\u8ddf|\u4e0e).*(\u6bd4|\u5bf9\u6bd4|\u6bd4\u8f83|\u600e\u4e48\u9009|\u5982\u4f55\u9009|\u7ea0\u7ed3)/.test(
@@ -41,6 +60,10 @@ function detectIntent(message) {
       /(\u600e\u4e48\u9009|\u63a8\u8350|\u66f4\u9002\u5408)/.test(m));
   if (comparisonIntentSafe) {
     return "comparison";
+  }
+
+  if (hasServiceGuidanceIntent(m)) {
+    return "service";
   }
 
   const hasKnownCarMention =
@@ -83,6 +106,7 @@ function safeParseJson(text) {
 module.exports = {
   getCars,
   detectIntent,
+  hasServiceGuidanceIntent,
   systemPromptForMode,
   safeParseJson,
 };

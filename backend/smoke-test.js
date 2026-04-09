@@ -298,8 +298,16 @@ async function main() {
   if (recommendationStatus === "expected") {
     assert(Array.isArray(recommendation.json.structured?.cars), "recommendation cars missing");
     assert(
+      recommendation.json.structured.cars.length >= 1,
+      "recommendation should keep at least one candidate car"
+    );
+    assert(
       Array.isArray(recommendation.json.structured?.next_steps),
       "recommendation next_steps missing"
+    );
+    assert(
+      recommendation.json.uiHints?.showRecommendationCards === true,
+      "recommendation should render recommendation cards"
     );
   }
 
@@ -440,6 +448,17 @@ async function main() {
     const traceText = JSON.stringify(isolatedSessionTurn2.json.agent?.trace || []);
     assert(!/G9|20万/.test(traceText), "service trace should not leak previous recommendation profile");
   }
+
+  const isolatedForcedRecommendationTurn = await postJson(`${BASE}/api/chat`, {
+    message: "第一次买纯电车，想知道日常补能、保养和冬季续航要注意什么。",
+    sessionId: isolatedSessionId,
+    mode: "recommendation",
+  });
+  assert(
+    isolatedForcedRecommendationTurn.response.ok,
+    "forced stale recommendation service turn failed"
+  );
+  assertExpectedModeOrTimeout(isolatedForcedRecommendationTurn, "service");
 
   const staleComparisonSeed = await postJson(`${BASE}/api/chat`, {
     message: "对比 G6 和 X9",

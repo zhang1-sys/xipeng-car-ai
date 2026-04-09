@@ -1,5 +1,6 @@
 const {
   detectIntent,
+  hasServiceGuidanceIntent,
   safeParseJson,
   systemPromptForMode,
   getCars,
@@ -286,7 +287,9 @@ function inferTaskTypeFromTurn(mode, message, previousTaskType) {
   if (/配置|选配/.test(text)) return "configure";
   if (mode === "comparison") return "compare";
   if (mode === "recommendation") return "recommend";
-  if (mode === "service") return previousTaskType || "service";
+  if (mode === "service") {
+    return hasServiceGuidanceIntent(text) ? "service" : previousTaskType || "service";
+  }
   return previousTaskType || "service";
 }
 
@@ -301,9 +304,12 @@ function deriveTaskMemory({
 }) {
   const previous = compactTaskMemory(previousTaskMemory);
   const currentTurnProfile = compactProfile(extractProfileFromTextSafe(message, catalogBrands()));
-  const focusedCars = uniqueStrings([
+  const currentFocusedCars = uniqueStrings([
     ...(currentTurnProfile.mentionedCars || []),
     ...getFocusedMentionedCars(profile, message).map((car) => normalizeCarLabel(car)),
+  ]);
+  const focusedCars = uniqueStrings([
+    ...currentFocusedCars,
     ...(previous.focusedCars || []),
     previous.focusedCar || "",
   ]);
@@ -321,6 +327,8 @@ function deriveTaskMemory({
       : "";
   const nextTaskType =
     structuredTaskType || inferTaskTypeFromTurn(mode, message, previous.activeTaskType);
+  const shouldResetFocusedCars = nextTaskType === "service" && currentFocusedCars.length === 0;
+  const nextFocusedCars = shouldResetFocusedCars ? [] : focusedCars;
 
   return compactTaskMemory({
     ...previous,
@@ -343,8 +351,8 @@ function deriveTaskMemory({
           previous.pendingAction
         ),
     city: pickFirstString(currentTurnProfile.city, profile?.city, previous.city),
-    focusedCar: pickFirstString(focusedCars[0], previous.focusedCar),
-    focusedCars,
+    focusedCar: pickFirstString(nextFocusedCars[0]),
+    focusedCars: nextFocusedCars,
     readyToConvert:
       status === "ready_to_convert" ||
       nextTaskType === "test_drive" ||
@@ -688,13 +696,20 @@ function getCarAliasTokens(car) {
 
 function extractPotentialCarQueries(text) {
   const raw = String(text || "");
-  const tokens = [
-    ...raw.match(/[A-Za-z]+\s*\d+(?:\+|i)?/g) || [],
-    ...raw.match(/m[o0]3/gi) || [],
-    ...raw.match(/mona\s*m[o0]3/gi) || [],
-  ];
+  const tokens = [];
+  for (const match of raw.matchAll(/\b([A-Za-z]{1,6})\s*(\d+(?:\+|i)?)/g)) {
+    const prefix = String(match[1] || "");
+    const suffix = raw.slice((match.index || 0) + match[0].length).trimStart();
+    // Exclude English article + budget/unit patterns like "a 200k".
+    if (/^a$/i.test(prefix) && /^(?:k|km|kw|w|万|万元|块)/i.test(suffix)) {
+      continue;
+    }
+    tokens.push(`${prefix}${match[2] || ""}`);
+  }
+  tokens.push(...(raw.match(/m[o0]3/gi) || []));
+  tokens.push(...(raw.match(/mona\s*m[o0]3/gi) || []));
 
-  return uniqueStrings(tokens.map((item) => item.replace(/\s+/g, "")));
+  return uniqueStrings(tokens.map((item) => String(item || "").replace(/\s+/g, "")));
 }
 
 function messageHasPotentialCarMention(text) {
@@ -797,7 +812,7 @@ function isDetailedDecisionRequestSafe(message) {
 }
 
 function isComparisonIntentSafe(message) {
-  return /(\u5bf9\u6bd4|\u6bd4\u8f83|vs|VS|\u533a\u522b|\u5dee\u5f02|\u600e\u4e48\u9009|\u9009\u54ea\u4e2a|\u9009\u54ea\u6b3e|\u4e24\u4e2a|\u4e24\u6b3e|\u54ea\u4e2a\u66f4)/.test(
+  return /(\u5bf9\u6bd4|\u6bd4\u8f83|vs|VS|\u533a\u522b|\u5dee\u5f02|\u600e\u4e48\u9009|\u9009\u54ea\u4e2a|\u9009\u54ea\u6b3e|\u4e24\u4e2a|\u4e24\u6b3e|\u54ea\u4e2a\u66f4|\bcompare\b|\bcomparison\b|which\s+is\s+better|better\s+choice|choose\s+between)/i.test(
     String(message || "")
   );
 }
@@ -2516,6 +2531,31 @@ function sanitizeRecommendationCars(cars, profile, message, limit = 3) {
     used.add(car.name);
   }
 
+  if (!selected.length) {
+    const emergencyFallback = buildFallbackRecommendationCandidates(
+      effectiveProfile || {},
+      "",
+      normalizedLimit
+    );
+    for (const car of emergencyFallback) {
+      if (selected.length >= normalizedLimit) break;
+      if (used.has(car.name)) continue;
+      selected.push({
+        brand: car.brand,
+        name: car.name,
+        image: car.image,
+        price: car.price,
+        range: car.range,
+        smart: car.smart,
+        fitScore: fitScoreToPercent(car.agentScore ?? 0),
+        bestFor: buildCarBestForLocal(car, effectiveProfile || {}),
+        reasons: buildCarReasonsLocal(car, effectiveProfile || {}, ""),
+        tradeoffs: buildCarTradeoffsLocal(car, effectiveProfile || {}),
+      });
+      used.add(car.name);
+    }
+  }
+
   if (!selected.length && singleFocusedCar) {
     const matched = matchCatalogCarByName(singleFocusedCar.name);
     if (matched) {
@@ -2606,15 +2646,22 @@ function hasExploratoryRecommendationIntentForRecovery(text) {
   );
 }
 
-function shouldRecoverRecommendationTurn(message, mode, structured, reply) {
+function shouldRecoverRecommendationTurn(message, mode, structured, reply, expectedMode = "") {
+  const hasExploratoryRecommendation = hasExploratoryRecommendationIntentForRecovery(message);
+  if (hasServiceGuidanceIntent(message) && !hasExploratoryRecommendation) {
+    return false;
+  }
+
   const hasRecommendationIntent =
+    expectedMode === "recommendation" ||
+    mode === "recommendation" ||
     detectIntent(message) === "recommendation" ||
-    hasExploratoryRecommendationIntentForRecovery(message);
+    hasExploratoryRecommendation;
   if (!hasRecommendationIntent) return false;
   if (mode !== "recommendation") return true;
 
   const cars = Array.isArray(structured?.cars) ? structured.cars.filter(Boolean) : [];
-  if (cars.length) return false;
+  if (!cars.length) return true;
 
   return isServiceStructuredPayload(structured) || looksLikeServiceKnowledgeLeak(reply);
 }
@@ -3357,7 +3404,7 @@ async function runAgentTurn({
   let mode = plannedMode;
   let finalStructured = structured;
   let finalReply = reply;
-  if (shouldRecoverRecommendationTurn(message, mode, finalStructured, finalReply)) {
+  if (shouldRecoverRecommendationTurn(message, mode, finalStructured, finalReply, plannedMode)) {
     const recovered = recoverRecommendationTurn({
       message,
       profile: turnProfile,

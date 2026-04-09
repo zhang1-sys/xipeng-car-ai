@@ -8,7 +8,7 @@ const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
 
-const { detectIntent } = require("./agent");
+const { detectIntent, hasServiceGuidanceIntent } = require("./agent");
 const {
   createSessionState,
   trimSessionMessages,
@@ -649,6 +649,22 @@ function hasExploratoryRecommendationIntent(text) {
   );
 }
 
+function shouldPreserveRecommendationFollowup(text, session, forcedMode) {
+  const isRecommendationContext =
+    forcedMode === "recommendation" ||
+    session?.lastMode === "recommendation" ||
+    session?.lastMode === "comparison";
+  if (!isRecommendationContext) return false;
+  if (
+    isExplicitComparisonTurnSafe(text) ||
+    hasStrongConversionIntent(text) ||
+    hasServiceGuidanceIntent(text)
+  ) {
+    return false;
+  }
+  return isSupplementalProfileMessage(text);
+}
+
 function shouldShowRecommendationUi(text, turn) {
   if (turn?.mode !== "recommendation") return false;
   if (isExplicitComparisonTurnSafe(text)) return false;
@@ -657,14 +673,20 @@ function shouldShowRecommendationUi(text, turn) {
   const structured = turn?.structured;
   const cars = Array.isArray(structured?.cars) ? structured.cars.filter(Boolean) : [];
   if (!cars.length) return false;
-
-  return /(?:\u63a8\u8350|\u4e70\u8f66|\u9009\u8f66|\u8d2d\u8f66|\u9884\u7b97|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u503c\u5f97\u4e70|\u8f66\u578b|\u8bf4\u8bf4|\u4ecb\u7ecd|\u5bf9\u6bd4|\u6bd4\u8f83|\u54ea\u4e2a\u597d)/.test(
-    normalizeIntentText(text)
-  );
+  return true;
 }
 
 function buildTurnUiHints(text, turn, session) {
-  const showRecommendationUi = shouldShowRecommendationUi(text, turn);
+  const preserveRecommendationFollowup = shouldPreserveRecommendationFollowup(
+    text,
+    session,
+    turn?.mode
+  );
+  const hasRecommendationCars =
+    Array.isArray(turn?.structured?.cars) && turn.structured.cars.filter(Boolean).length > 0;
+  const showRecommendationUi =
+    shouldShowRecommendationUi(text, turn) ||
+    (preserveRecommendationFollowup && turn?.mode === "recommendation" && hasRecommendationCars);
   const taskType = String(session?.taskMemory?.activeTaskType || "");
   const showAdvisorFollowupCard =
     turn?.mode === "service" &&
@@ -753,18 +775,23 @@ function storeMatchesUserCity(store, userCity) {
 
 function resolveTurnMode(text, session) {
   const detected = detectIntent(text);
+  if (detected === "recommendation" && hasServiceGuidanceIntent(text) && !hasExploratoryRecommendationIntent(text)) {
+    return "service";
+  }
   if (detected !== "service") return detected;
   if (hasExploratoryRecommendationIntent(text) && !hasStrongConversionIntent(text)) return "recommendation";
   if (hasStrongConversionIntent(text)) return "service";
-  if (hasStrongServiceIntent(text)) return "service";
 
   const lastMode = session?.lastMode;
   if (
     (lastMode === "recommendation" || lastMode === "comparison") &&
-    isSupplementalProfileMessage(text)
+    isSupplementalProfileMessage(text) &&
+    !hasServiceGuidanceIntent(text)
   ) {
     return lastMode;
   }
+
+  if (hasStrongServiceIntent(text)) return "service";
 
   return detected;
 }
@@ -777,7 +804,7 @@ function isExplicitComparisonTurnSafe(text) {
 
   return (
     uniqueCars.length >= 2 ||
-    /(?:\bvs\b|\u5bf9\u6bd4|\u6bd4\u8f83|\u5dee\u5f02|\u533a\u522b|\u4ef7\u5dee|\u843d\u5730\u4ef7\u5dee|\u600e\u4e48\u9009|\u9009\u54ea\u4e2a|\u9009\u54ea\u6b3e)/i.test(
+    /(?:\bvs\b|\bcompare\b|\bcomparison\b|\u5bf9\u6bd4|\u6bd4\u8f83|\u5dee\u5f02|\u533a\u522b|\u4ef7\u5dee|\u843d\u5730\u4ef7\u5dee|\u600e\u4e48\u9009|\u9009\u54ea\u4e2a|\u9009\u54ea\u6b3e|which\s+is\s+better|better\s+choice|choose\s+between)/i.test(
       raw
     )
   );
@@ -820,6 +847,8 @@ function resolveRequestedChatMode(text, session, forcedMode) {
   if (!hasForcedMode) return resolveTurnMode(text, session);
 
   if (isExplicitComparisonTurnSafe(text)) return "comparison";
+  if (hasServiceGuidanceIntent(text) && !hasExploratoryRecommendationIntent(text)) return "service";
+  if (shouldPreserveRecommendationFollowup(text, session, forcedMode)) return "recommendation";
   if (hasExploratoryRecommendationIntent(text) && !hasStrongConversionIntent(text)) return "recommendation";
   if (hasStrongConversionIntent(text) || hasStrongServiceIntent(text)) return "service";
   if (isSingleCarExplainTurnSafe(text)) return "recommendation";
@@ -1775,11 +1804,18 @@ app.post("/api/chat", async (req, res) => {
     const session = sessions.get(sessionId);
     attachUserProfileToSession(session, incomingClientProfileId);
     const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
+    const preserveRecommendationFollowup = shouldPreserveRecommendationFollowup(
+      text,
+      session,
+      forcedMode
+    );
     const recommendationExploration =
       hasExploratoryRecommendationIntent(text) &&
       !hasStrongConversionIntent(text) &&
       !hasStrongServiceIntent(text);
-    const mode = recommendationExploration
+    const mode = preserveRecommendationFollowup
+      ? "recommendation"
+      : recommendationExploration
       ? "recommendation"
       : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
         ? "service"
@@ -1910,11 +1946,18 @@ app.post("/api/chat/stream", async (req, res) => {
     forcedMode === "comparison" ||
     forcedMode === "service";
   const requestedMode = resolveRequestedChatMode(text, session, forcedMode);
+  const preserveRecommendationFollowup = shouldPreserveRecommendationFollowup(
+    text,
+    session,
+    forcedMode
+  );
   const recommendationExploration =
     hasExploratoryRecommendationIntent(text) &&
     !hasStrongConversionIntent(text) &&
     !hasStrongServiceIntent(text);
-  const resolvedMode = recommendationExploration
+  const resolvedMode = preserveRecommendationFollowup
+    ? "recommendation"
+    : recommendationExploration
     ? "recommendation"
     : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
       ? "service"
