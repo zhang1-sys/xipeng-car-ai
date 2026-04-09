@@ -1017,10 +1017,12 @@ function buildDisplayProfile(profile, message, ...extraTexts) {
   const mergedProfile = mergeMessageProfileHints(profile || {}, message, ...extraTexts);
   const hasCurrentCarMention =
     Array.isArray(currentTurnProfile.mentionedCars) && currentTurnProfile.mentionedCars.length > 0;
+  const externalCarLabel = extractExternalCarLabel(message);
   const shouldResetMentionedCars =
-    !hasCurrentCarMention &&
-    hasDecisionSignals(currentTurnProfile) &&
-    !isSupplementalProfileMessageSafeV2(message);
+    Boolean(externalCarLabel) ||
+    (!hasCurrentCarMention &&
+      hasDecisionSignals(currentTurnProfile) &&
+      !isSupplementalProfileMessageSafeV2(message));
 
   if (
     isSingleCarDeepDiveRequest(mergedProfile, message) &&
