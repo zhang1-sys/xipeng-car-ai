@@ -584,6 +584,16 @@ function trimSession(messages) {
   return trimSessionMessages(messages, MAX_MESSAGES);
 }
 
+function normalizeAmapLocationField(value) {
+  if (Array.isArray(value)) {
+    const first = value.map((item) => String(item || "").trim()).find(Boolean);
+    return first || null;
+  }
+  const text = String(value || "").trim();
+  if (!text || text === "[]") return null;
+  return text;
+}
+
 function isSupplementalProfileMessage(text) {
   return /预算|万|家充|装桩|充电|城市|我在|人在|通勤|长途|带娃|家庭|空间|智驾|智能化|续航|SUV|轿车|六座|七座|广州|深圳|上海|北京/.test(
     String(text || "")
@@ -1361,12 +1371,13 @@ app.get("/api/geocode/city", async (req, res) => {
     const data = await r.json();
     if (String(data.status) !== "1") return res.json({ city: null, error: data.info });
     const addr = data.regeocode?.addressComponent;
-    const city = (addr?.city && addr.city !== "[]" ? addr.city : addr?.province) || null;
-    const district = addr?.district || null;
+    const province = normalizeAmapLocationField(addr?.province);
+    const city = normalizeAmapLocationField(addr?.city) || province;
+    const district = normalizeAmapLocationField(addr?.district);
     res.json({
       city,
       district,
-      province: addr?.province || null,
+      province,
       formattedAddress: data.regeocode?.formatted_address || null,
     });
   } catch (e) {

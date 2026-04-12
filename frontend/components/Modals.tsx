@@ -80,7 +80,8 @@ function normalizeCityNameSafe(raw: string | null | undefined): string {
     .trim()
     .replace(/Special Administrative Region|Autonomous Region|Autonomous Prefecture|Region|League/gi, "")
     .replace(/Municipal District/gi, "")
-    .replace(/(City|District|County)$/gi, "");
+    .replace(/(City|District|County)$/gi, "")
+    .replace(/(市|地区|盟|自治州|区|县)$/g, "");
 }
 
 function normalizeProvinceNameSafe(raw: string | null | undefined): string {
@@ -94,6 +95,7 @@ function normalizeDistrictNameSafe(raw: string | null | undefined): string {
   return String(raw || "")
     .trim()
     .replace(/(District|County)$/gi, "")
+    .replace(/(区|县|市)$/g, "")
     .replace(/\s+/g, "");
 }
 
@@ -578,7 +580,13 @@ export function TestDriveModal({
               : typeof geo.province === "string"
                 ? normalizeProvinceNameSafe(geo.province)
                 : null;
-            const raw = geo.city || geo.province || null;
+            const rawCity =
+              typeof geo.city === "string" && geo.city.trim()
+                ? geo.city
+                : typeof geo.province === "string" && geo.province.trim()
+                  ? geo.province
+                  : null;
+            const raw = rawCity || null;
             const cityName = Array.isArray(raw)
               ? null
               : typeof raw === "string"
