@@ -210,6 +210,26 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function formatGeoCoordinateLabel(lat: number, lng: number) {
+  return `定位坐标：${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function pickNearestStoreByCoords(stores: StoreItem[], lat: number, lng: number): StoreItem | null {
+  let nearest: StoreItem | null = null;
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  for (const store of stores) {
+    if (store.lat == null || store.lng == null) continue;
+    const distance = haversineKm(lat, lng, store.lat, store.lng);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearest = store;
+    }
+  }
+
+  return nearest;
+}
+
 function routingMethodLabel(method: string | undefined, hasGeo: boolean) {
   if (method === "amap_driving") return "已按驾车时间匹配最近门店";
   if (method === "geo") return "已按定位直线距离匹配最近门店";
@@ -581,12 +601,35 @@ export function TestDriveModal({
     setGeoLocation(null);
     setStoreSelectionTouched(false);
     setStoreId("");
+    setSelectedProvince("");
+    setSelectedCity("");
+    setSelectedDistrict("");
+    setLocationDetail("");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        const coordinateLabel = formatGeoCoordinateLabel(lat, lng);
+        const nearestStore = pickNearestStoreByCoords(stores, lat, lng);
+        const fallbackProvince = normalizeProvinceTokenSafe(nearestStore?.province || nearestStore?.city);
+        const fallbackCity = normalizeCityNameSafe(nearestStore?.city);
+        const fallbackDistrict = normalizeDistrictNameSafe(
+          nearestStore?.district ||
+            extractDistrictFromAddress(
+              nearestStore?.address,
+              nearestStore?.province || nearestStore?.city,
+              nearestStore?.city
+            )
+        );
         setUserLat(lat);
         setUserLng(lng);
+        setLocationDetail(coordinateLabel);
+        setGeoLocation({
+          province: fallbackProvince || null,
+          city: fallbackCity || null,
+          district: fallbackDistrict || null,
+          formattedAddress: coordinateLabel,
+        });
         setGeoHint("已获取定位，正在识别城市...");
         fetchGeocodeCity(lat, lng)
           .then((geo) => {
@@ -612,31 +655,54 @@ export function TestDriveModal({
               : typeof geo.district === "string"
                 ? normalizeDistrictNameSafe(geo.district)
                 : null;
+            const effectiveProvince = provinceName || fallbackProvince || null;
+            const effectiveCity = cityName || fallbackCity || null;
+            const effectiveDistrict = districtName || fallbackDistrict || null;
             const detail =
-              geo.formattedAddress || [provinceName, cityName, districtName].filter(Boolean).join(" ");
+              geo.formattedAddress ||
+              [provinceName, cityName, districtName].filter(Boolean).join(" ") ||
+              coordinateLabel;
             setGeoLocation({
               ...geo,
-              province: provinceName,
-              city: cityName,
-              district: districtName,
-              formattedAddress: detail || geo.formattedAddress || null,
+              province: effectiveProvince,
+              city: effectiveCity,
+              district: effectiveDistrict,
+              formattedAddress: detail || coordinateLabel,
             });
             if (cityName) {
-              if (provinceName) setSelectedProvince(provinceName);
-              setSelectedCity(cityName);
-              if (districtName) setSelectedDistrict(districtName);
+              if (effectiveProvince) setSelectedProvince(effectiveProvince);
+              if (effectiveCity) setSelectedCity(effectiveCity);
+              if (effectiveDistrict) setSelectedDistrict(effectiveDistrict);
               if (detail) setLocationDetail(detail);
               setGeoHint(detail ? `已识别位置：${detail}` : `已识别城市：${cityName}`);
             } else {
-              if (provinceName) setSelectedProvince(provinceName);
-              if (districtName) setSelectedDistrict(districtName);
+              if (effectiveProvince) setSelectedProvince(effectiveProvince);
+              if (effectiveCity) setSelectedCity(effectiveCity);
+              if (effectiveDistrict) setSelectedDistrict(effectiveDistrict);
               if (detail) setLocationDetail(detail);
-              setGeoHint("已获取定位，但暂时未能识别城市。");
+              setGeoHint(
+                effectiveCity
+                  ? `已获取定位，暂未识别精确城市，已按最近门店所在城市 ${effectiveCity} 优先匹配。`
+                  : "已获取定位，但暂时未能识别城市。"
+              );
             }
           })
           .catch(() => {
-            setGeoLocation(null);
-            setGeoHint("已获取定位，但地址解析失败。");
+            setGeoLocation({
+              province: fallbackProvince || null,
+              city: fallbackCity || null,
+              district: fallbackDistrict || null,
+              formattedAddress: coordinateLabel,
+            });
+            if (fallbackProvince) setSelectedProvince(fallbackProvince);
+            if (fallbackCity) setSelectedCity(fallbackCity);
+            if (fallbackDistrict) setSelectedDistrict(fallbackDistrict);
+            setLocationDetail(coordinateLabel);
+            setGeoHint(
+              fallbackCity
+                ? `已获取定位，地址解析失败，已按最近门店所在城市 ${fallbackCity} 优先匹配。`
+                : "已获取定位，但地址解析失败。"
+            );
           });
       },
       (err) => {
