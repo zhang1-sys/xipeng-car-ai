@@ -7,17 +7,70 @@ const { getCars } = require("./agent");
 
 // ─── 工具函数 ────────────────────────────────────────────────
 
-function runRecallMemoryTool({ session }) {
-  return {
-    data: {
-      profile: session.profile,
-      memorySummary: session.memorySummary,
-      lastMode: session.lastMode,
-    },
-    summary: session.memorySummary || "当前会话还没有稳定画像",
+function compactTaskMemory(taskMemory) {
+  const next = {
+    activeTaskType: pickFirstString(taskMemory?.activeTaskType),
+    goal: pickFirstString(taskMemory?.goal),
+    stage: pickFirstString(taskMemory?.stage),
+    pendingAction: pickFirstString(taskMemory?.pendingAction),
+    city: pickFirstString(taskMemory?.city),
+    focusedCar: pickFirstString(taskMemory?.focusedCar),
+    focusedCars: uniqueStrings(taskMemory?.focusedCars),
+    readyToConvert: taskMemory?.readyToConvert === true,
+    updatedAt: pickFirstString(taskMemory?.updatedAt),
   };
+
+  if (!next.focusedCar && next.focusedCars.length === 1) {
+    next.focusedCar = next.focusedCars[0];
+  }
+  if (next.focusedCar && !next.focusedCars.includes(next.focusedCar)) {
+    next.focusedCars = [next.focusedCar, ...next.focusedCars];
+  }
+
+  return Object.fromEntries(
+    Object.entries(next).filter(([key, value]) => {
+      if (key === "readyToConvert") return value === true;
+      if (Array.isArray(value)) return value.length > 0;
+      return Boolean(value);
+    })
+  );
 }
 
+function uniqueStrings(list) {
+  return [...new Set((Array.isArray(list) ? list : []).filter(Boolean).map((item) => String(item)))];
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function runRecallMemoryTool({ session }) {
+  const durableProfile = compactProfile(session.userProfile || {});
+  const workingProfile = compactProfile(session.profile || {});
+  const taskMemory = compactTaskMemory(session.taskMemory);
+  const memorySummary = pickFirstString(
+    session.userMemorySummary,
+    session.memorySummary,
+    buildMemorySummarySafe(durableProfile),
+    buildMemorySummarySafe(workingProfile)
+  );
+
+  return {
+    data: {
+      userProfile: durableProfile,
+      userMemorySummary: memorySummary,
+      taskMemory,
+      recentGoal: taskMemory.goal || "",
+      profile: workingProfile,
+      memorySummary,
+      lastMode: session.lastMode,
+    },
+    summary: memorySummary || taskMemory.goal || "当前还没有稳定的长期记忆",
+  };
+}
 function normalizeText(s) {
   return String(s || "").toLowerCase().replace(/[\s\-_·]/g, "");
 }

@@ -267,12 +267,37 @@ function compactProfile(profile) {
   );
 }
 
-function buildTaskMemoryProfileHints(taskMemory) {
+function buildTaskMemoryProfileHints(taskMemory, { includeFocusedCars = true } = {}) {
   const compactTask = compactTaskMemory(taskMemory);
   return compactProfile({
     city: compactTask.city,
-    mentionedCars: uniqueStrings([compactTask.focusedCar, ...(compactTask.focusedCars || [])]),
+    mentionedCars: includeFocusedCars
+      ? uniqueStrings([compactTask.focusedCar, ...(compactTask.focusedCars || [])])
+      : [],
   });
+}
+
+function memorySummaryScore(summary) {
+  if (!summary) return 0;
+  return String(summary)
+    .split(/[；;，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+}
+
+function choosePreferredMemorySummary(...candidates) {
+  let best = "";
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    const score = memorySummaryScore(value);
+    if (score > bestScore) {
+      best = value;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 function hasAdvisorFollowupSignal(text) {
@@ -310,6 +335,15 @@ function inferTaskTypeFromTurn(mode, message, previousTaskType) {
   return previousTaskType || "service";
 }
 
+function hasImplicitFocusedCarCarryoverSignal(message, nextTaskType) {
+  const text = String(message || "");
+  if (!text) return false;
+  if (nextTaskType === "test_drive" || nextTaskType === "advisor_followup") return true;
+  return /(?:这款|这台|这辆|那款|那台|那辆|它|这个车|那个车|继续聊|继续讲|继续说|继续分析|继续对比|哪个版本|哪个配置|版本怎么选|配置怎么选)/u.test(
+    text
+  );
+}
+
 function deriveTaskMemory({
   previousTaskMemory,
   profile,
@@ -321,15 +355,6 @@ function deriveTaskMemory({
 }) {
   const previous = compactTaskMemory(previousTaskMemory);
   const currentTurnProfile = compactProfile(extractProfileFromTextSafe(message, catalogBrands()));
-  const currentFocusedCars = uniqueStrings([
-    ...(currentTurnProfile.mentionedCars || []),
-    ...getFocusedMentionedCars(profile, message).map((car) => normalizeCarLabel(car)),
-  ]);
-  const focusedCars = uniqueStrings([
-    ...currentFocusedCars,
-    ...(previous.focusedCars || []),
-    previous.focusedCar || "",
-  ]);
   const structuredIntentText = [
     structured?.title,
     structured?.diagnosis,
@@ -337,15 +362,38 @@ function deriveTaskMemory({
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .join(" ");
-  const structuredTaskType = hasAdvisorFollowupSignal(structuredIntentText)
-    ? "advisor_followup"
-    : /试驾|预约|到店/.test(structuredIntentText)
+  const inferredTaskType = inferTaskTypeFromTurn(mode, message, previous.activeTaskType);
+  const canPromoteFromStructured =
+    inferredTaskType === "test_drive" ||
+    inferredTaskType === "advisor_followup" ||
+    mode === "service";
+  const structuredTaskType = !canPromoteFromStructured
+    ? ""
+    : hasAdvisorFollowupSignal(structuredIntentText)
+      ? "advisor_followup"
+      : /试驾|预约|到店/.test(structuredIntentText)
       ? "test_drive"
       : "";
-  const nextTaskType =
-    structuredTaskType || inferTaskTypeFromTurn(mode, message, previous.activeTaskType);
-  const shouldResetFocusedCars = nextTaskType === "service" && currentFocusedCars.length === 0;
-  const nextFocusedCars = shouldResetFocusedCars ? [] : focusedCars;
+  const nextTaskType = structuredTaskType || inferredTaskType;
+  const explicitFocusedCars = uniqueStrings([
+    ...(currentTurnProfile.mentionedCars || []),
+    ...findMentionedCars(message).map((car) => normalizeCarLabel(car)),
+  ]);
+  const carriedFocusedCars =
+    explicitFocusedCars.length === 0 && hasImplicitFocusedCarCarryoverSignal(message, nextTaskType)
+      ? uniqueStrings([previous.focusedCar || "", ...(previous.focusedCars || [])])
+      : [];
+  const currentFocusedCars = uniqueStrings([...explicitFocusedCars, ...carriedFocusedCars]);
+  const shouldResetFocusedCars =
+    mode === "service" &&
+    nextTaskType !== "test_drive" &&
+    nextTaskType !== "advisor_followup" &&
+    currentFocusedCars.length === 0;
+  const nextFocusedCars = shouldResetFocusedCars
+    ? []
+    : uniqueStrings([...currentFocusedCars, ...(previous.focusedCars || []), previous.focusedCar || ""]);
+  const shouldCarryPendingAction =
+    nextTaskType === "test_drive" || nextTaskType === "advisor_followup";
 
   return compactTaskMemory({
     ...previous,
@@ -365,7 +413,7 @@ function deriveTaskMemory({
       : pickFirstString(
           Array.isArray(structured?.next_steps) ? structured.next_steps[0] : "",
           Array.isArray(structured?.followups) ? structured.followups[0] : "",
-          previous.pendingAction
+          shouldCarryPendingAction ? previous.pendingAction : ""
         ),
     city: pickFirstString(currentTurnProfile.city, profile?.city, previous.city),
     focusedCar: pickFirstString(nextFocusedCars[0]),
@@ -627,14 +675,17 @@ function recentMessagesForModel(messages) {
   }));
 }
 
-function recentMessagesForTurn(messages, mode, message, profile) {
+function shouldIsolateServiceTurnContext(mode, message) {
   const currentTurnProfile = mergeMessageProfileHints({}, message);
-  const isolateServiceTurn =
+  return (
     mode === "service" &&
     !hasDecisionSignals(currentTurnProfile) &&
-    getFocusedMentionedCars(currentTurnProfile, message).length === 0;
+    getFocusedMentionedCars(currentTurnProfile, message).length === 0
+  );
+}
 
-  if (isolateServiceTurn) {
+function recentMessagesForTurn(messages, mode, message, profile) {
+  if (shouldIsolateServiceTurnContext(mode, message)) {
     return [];
   }
 
@@ -1437,6 +1488,27 @@ function runRecallMemoryTool({ session }) {
       lastMode: session.lastMode,
     },
     summary: session.memorySummary || "当前会话还没有稳定画像",
+  };
+}
+
+function runRecallMemoryToolV2({ session }) {
+  const isolatedMemoryView = session?.isolatedMemoryView === true;
+  const turnProfile = compactProfile(session.profile || {});
+  const turnMemorySummary = buildMemorySummarySafe(turnProfile);
+  const memorySummary = isolatedMemoryView
+    ? turnMemorySummary
+    : pickFirstString(turnMemorySummary, session.memorySummary, session.userMemorySummary);
+
+  return {
+    data: {
+      profile: turnProfile,
+      userProfile: isolatedMemoryView ? turnProfile : compactProfile(session.userProfile || {}),
+      userMemorySummary: isolatedMemoryView ? memorySummary : session.userMemorySummary || "",
+      memorySummary,
+      taskMemory: compactTaskMemory(session.taskMemory),
+      lastMode: session.lastMode,
+    },
+    summary: memorySummary || "当前会话还没有稳定画像",
   };
 }
 
@@ -3276,25 +3348,50 @@ async function runAgentTurn({
   session.userMemorySummary =
     session.userMemorySummary || buildMemorySummarySafe(session.userProfile || {});
   session.taskMemory = compactTaskMemory(session.taskMemory);
-  session.profile = mergeProfile(session.userProfile || {}, session.profile || {});
   const effectiveForcedMode = resolveForcedModeForCurrentTurn(forcedMode, message);
   const requestedMode = ALLOWED_MODES.has(effectiveForcedMode) ? effectiveForcedMode : detectIntent(message);
   const heuristicProfile = extractProfileFromTextSafe(message, brands);
-  session.profile = mergeProfile(session.profile, heuristicProfile);
-  session.memorySummary = buildMemorySummarySafe(session.profile);
   const shouldHydrateTaskContext = /试驾|预约|门店|到店/.test(
     String(message || "")
   ) || hasAdvisorFollowupSignal(message);
-  const taskProfileHints = shouldHydrateTaskContext
-    ? buildTaskMemoryProfileHints(session.taskMemory)
-    : {};
+  const taskProfileHints = buildTaskMemoryProfileHints(session.taskMemory, {
+    includeFocusedCars: shouldHydrateTaskContext,
+  });
+  const durableProfile = mergeProfile(session.userProfile || {}, taskProfileHints);
+  session.profile = mergeProfile(durableProfile, session.profile || {});
+  session.profile = mergeProfile(session.profile, heuristicProfile);
+  session.profile = compactProfile(session.profile);
+  const durableMemorySummary = choosePreferredMemorySummary(
+    buildMemorySummarySafe(durableProfile),
+    session.userMemorySummary,
+    session.memorySummary
+  );
+  session.userMemorySummary = durableMemorySummary;
+  session.memorySummary = choosePreferredMemorySummary(
+    buildMemorySummarySafe(session.profile),
+    durableMemorySummary,
+    session.memorySummary
+  );
+  const turnTaskHints = taskProfileHints;
+  const requestedTurnIsolated = shouldIsolateServiceTurnContext(requestedMode, message);
   let turnProfile = mergeProfile(
     buildTurnScopedProfile(session.profile, requestedMode, message),
-    taskProfileHints
+    turnTaskHints
   );
-  let turnMemorySummary = buildMemorySummarySafe(turnProfile);
+  let turnMemorySummary = requestedTurnIsolated
+    ? buildMemorySummarySafe(turnProfile)
+    : choosePreferredMemorySummary(
+        buildMemorySummarySafe(turnProfile),
+        session.memorySummary,
+        durableMemorySummary
+      );
   let turnSession = {
     ...session,
+    isolatedMemoryView: requestedTurnIsolated,
+    userProfile: requestedTurnIsolated ? compactProfile(turnProfile) : compactProfile(session.userProfile || {}),
+    userMemorySummary: requestedTurnIsolated
+      ? buildMemorySummarySafe(turnProfile)
+      : session.userMemorySummary,
     profile: turnProfile,
     memorySummary: turnMemorySummary,
   };
@@ -3321,14 +3418,31 @@ async function runAgentTurn({
   });
 
   session.profile = mergeProfile(session.profile, plan.profileUpdates);
-  session.memorySummary = buildMemorySummarySafe(session.profile);
+  session.profile = compactProfile(session.profile);
+  session.memorySummary = choosePreferredMemorySummary(
+    buildMemorySummarySafe(session.profile),
+    session.userMemorySummary,
+    session.memorySummary
+  );
+  const plannedTurnIsolated = shouldIsolateServiceTurnContext(plan.mode, message);
   turnProfile = mergeProfile(
     buildTurnScopedProfile(session.profile, plan.mode, message),
-    taskProfileHints
+    turnTaskHints
   );
-  turnMemorySummary = buildMemorySummarySafe(turnProfile);
+  turnMemorySummary = plannedTurnIsolated
+    ? buildMemorySummarySafe(turnProfile)
+    : choosePreferredMemorySummary(
+        buildMemorySummarySafe(turnProfile),
+        session.memorySummary,
+        session.userMemorySummary
+      );
   turnSession = {
     ...session,
+    isolatedMemoryView: plannedTurnIsolated,
+    userProfile: plannedTurnIsolated ? compactProfile(turnProfile) : compactProfile(session.userProfile || {}),
+    userMemorySummary: plannedTurnIsolated
+      ? buildMemorySummarySafe(turnProfile)
+      : session.userMemorySummary,
     profile: turnProfile,
     memorySummary: turnMemorySummary,
   };
@@ -3368,7 +3482,7 @@ async function runAgentTurn({
       });
       let result;
       if (toolCall.name === "recall_memory") {
-        result = runRecallMemoryTool({ session: turnSession });
+        result = runRecallMemoryToolV2({ session: turnSession });
       } else if (toolCall.name === "search_catalog") {
         result = runSearchCatalogTool({ message, session: turnSession, args: toolCall.args || {} });
       } else if (toolCall.name === "compare_catalog") {
@@ -3510,15 +3624,27 @@ async function runAgentTurn({
     clarifyNeeded: Boolean(plan?.clarify?.needed),
     solutionReady: mode === "service",
   });
+  const previousTaskMemory = compactTaskMemory(session.taskMemory);
   session.taskMemory = deriveTaskMemory({
-    previousTaskMemory: session.taskMemory,
-    profile: turnProfile,
+    previousTaskMemory,
+    profile: mergeProfile(turnProfile, buildTaskMemoryProfileHints(previousTaskMemory)),
     mode,
     message,
     plan,
     structured: finalStructured,
     status: status.code,
   });
+  session.userProfile = compactProfile(mergeProfile(session.userProfile || {}, session.profile || {}));
+  session.userMemorySummary = choosePreferredMemorySummary(
+    buildMemorySummarySafe(session.userProfile),
+    session.memorySummary,
+    session.userMemorySummary
+  );
+  session.memorySummary = choosePreferredMemorySummary(
+    buildMemorySummarySafe(turnProfile),
+    session.userMemorySummary,
+    session.memorySummary
+  );
   routingPolicy = buildRoutingPolicy({
     mode,
     stageCode,
@@ -3540,9 +3666,11 @@ async function runAgentTurn({
       status: "completed",
       title: "更新任务记忆",
       detail:
-        session.taskMemory?.focusedCar && session.taskMemory?.activeTaskType
-          ? `${session.taskMemory.activeTaskType} / ${session.taskMemory.focusedCar}`
-          : session.taskMemory?.activeTaskType || "已刷新当前任务状态",
+        mode === "service"
+          ? session.taskMemory?.activeTaskType || previousTaskMemory?.activeTaskType || "已刷新当前任务状态"
+          : session.taskMemory?.focusedCar && session.taskMemory?.activeTaskType
+            ? `${session.taskMemory.activeTaskType} / ${session.taskMemory.focusedCar}`
+            : session.taskMemory?.activeTaskType || previousTaskMemory?.activeTaskType || "已刷新当前任务状态",
     },
     {
       type: "plan",

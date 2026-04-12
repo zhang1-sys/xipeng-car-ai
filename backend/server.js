@@ -698,13 +698,15 @@ function buildTurnUiHints(text, turn, session) {
     shouldShowRecommendationUi(text, turn) ||
     (preserveRecommendationFollowup && turn?.mode === "recommendation" && hasRecommendationCars);
   const taskType = String(session?.taskMemory?.activeTaskType || "");
+  const hasCurrentTurnConversionIntent =
+    hasAdvisorFollowupIntent(text) || hasTestDriveIntent(text);
   const showAdvisorFollowupCard =
     turn?.mode === "service" &&
-    (hasAdvisorFollowupIntent(text) || taskType === "advisor_followup");
+    (hasAdvisorFollowupIntent(text) || (!hasCurrentTurnConversionIntent && taskType === "advisor_followup"));
   const showTestDriveCard =
     turn?.mode === "service" &&
     !showAdvisorFollowupCard &&
-    (hasTestDriveIntent(text) || taskType === "test_drive");
+    (hasTestDriveIntent(text) || (!hasCurrentTurnConversionIntent && taskType === "test_drive"));
   const conversionCarName = pickFirstString(
     session?.taskMemory?.focusedCar,
     session?.profile?.mentionedCars?.[0],
@@ -1047,11 +1049,12 @@ function attachUserProfileToSession(session, externalId) {
   session.clientProfileId = normalizedId;
   session.userProfile = mergeLongTermProfile(userProfile.profile, session.userProfile || {});
   session.userMemorySummary =
-    session.userMemorySummary || userProfile.memorySummary || session.memorySummary || "";
+    userProfile.memorySummary || session.userMemorySummary || session.memorySummary || "";
   session.taskMemory = {
     ...(userProfile.lastTaskMemory || {}),
     ...(session.taskMemory || {}),
   };
+  session.lastMode = session.lastMode || userProfile.lastMode || "service";
   return userProfile;
 }
 
@@ -1082,6 +1085,7 @@ function syncUserProfileFromSession(session) {
 
   session.userProfile = current.profile;
   session.userMemorySummary = current.memorySummary;
+  session.taskMemory = current.lastTaskMemory;
   return current;
 }
 
