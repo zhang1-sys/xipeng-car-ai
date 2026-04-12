@@ -659,6 +659,19 @@ function hasExploratoryRecommendationIntent(text) {
   );
 }
 
+function hasStoredCandidateComparisonFollowup(text, session) {
+  const storedCars = [
+    String(session?.taskMemory?.focusedCar || "").trim(),
+    ...((Array.isArray(session?.taskMemory?.focusedCars) ? session.taskMemory.focusedCars : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)),
+  ].filter(Boolean);
+  if (new Set(storedCars).size < 2) return false;
+  return /(?:\u4e24\u6b3e\u8f66|\u8fd9\u4e24\u6b3e|\u8fd9\u4e24\u53f0|\u4e24\u4e2a\u8f66\u578b|\u4e24\u4e2a\u5019\u9009|\u8fd9\u4e24\u4e2a|\u8fd9\u4e24\u8f86|\u4e24\u53f0\u8f66)/u.test(
+    normalizeIntentText(text)
+  );
+}
+
 function shouldPreserveRecommendationFollowup(text, session, forcedMode) {
   const isRecommendationContext =
     forcedMode === "recommendation" ||
@@ -786,6 +799,7 @@ function storeMatchesUserCity(store, userCity) {
 }
 
 function resolveTurnMode(text, session) {
+  if (hasStoredCandidateComparisonFollowup(text, session)) return "comparison";
   const detected = detectIntent(text);
   if (detected === "recommendation" && hasServiceGuidanceIntent(text) && !hasExploratoryRecommendationIntent(text)) {
     return "service";
@@ -858,6 +872,7 @@ function resolveRequestedChatMode(text, session, forcedMode) {
 
   if (!hasForcedMode) return resolveTurnMode(text, session);
 
+  if (hasStoredCandidateComparisonFollowup(text, session)) return "comparison";
   if (isExplicitComparisonTurnSafe(text)) return "comparison";
   if (hasServiceGuidanceIntent(text) && !hasExploratoryRecommendationIntent(text)) return "service";
   if (shouldPreserveRecommendationFollowup(text, session, forcedMode)) return "recommendation";
@@ -1824,12 +1839,15 @@ app.post("/api/chat", async (req, res) => {
       session,
       forcedMode
     );
+    const candidateComparisonFollowup = hasStoredCandidateComparisonFollowup(text, session);
     const recommendationExploration =
       hasExploratoryRecommendationIntent(text) &&
       !hasStrongConversionIntent(text) &&
       !hasStrongServiceIntent(text);
     const mode = preserveRecommendationFollowup
       ? "recommendation"
+      : candidateComparisonFollowup
+      ? "comparison"
       : recommendationExploration
       ? "recommendation"
       : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)
@@ -1966,12 +1984,15 @@ app.post("/api/chat/stream", async (req, res) => {
     session,
     forcedMode
   );
+  const candidateComparisonFollowup = hasStoredCandidateComparisonFollowup(text, session);
   const recommendationExploration =
     hasExploratoryRecommendationIntent(text) &&
     !hasStrongConversionIntent(text) &&
     !hasStrongServiceIntent(text);
   const resolvedMode = preserveRecommendationFollowup
     ? "recommendation"
+    : candidateComparisonFollowup
+    ? "comparison"
     : recommendationExploration
     ? "recommendation"
     : hasStrongConversionIntent(text) || hasStrongServiceIntent(text)

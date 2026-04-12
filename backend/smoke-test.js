@@ -433,6 +433,42 @@ async function main() {
     );
   }
 
+  const carryoverRecommendation = await postJson(`${BASE}/api/chat`, {
+    message:
+      "\u9884\u7b97 18 \u5230 22 \u4e07\uff0c\u5de5\u4f5c\u65e5\u57ce\u5e02\u901a\u52e4\uff0c\u5468\u672b\u5e26\u5bb6\u4eba\u77ed\u9014\u51fa\u884c\uff0c\u63a8\u8350\u4e24\u6b3e\u9002\u5408\u91cd\u70b9\u8bd5\u9a7e\u7684\u5c0f\u9e4f\u8f66\u578b\u3002",
+    mode: "recommendation",
+  });
+  assert(carryoverRecommendation.response.ok, "candidate carryover recommendation request failed");
+  const carryoverRecommendationStatus = assertExpectedModeOrTimeout(
+    carryoverRecommendation,
+    "recommendation"
+  );
+  if (carryoverRecommendationStatus === "expected") {
+    const carryoverSessionId = carryoverRecommendation.json.sessionId;
+    const carryoverCars = Array.isArray(carryoverRecommendation.json.structured?.cars)
+      ? carryoverRecommendation.json.structured.cars
+          .map((item) => String(item?.name || "").trim())
+          .filter(Boolean)
+          .slice(0, 2)
+      : [];
+    assert(carryoverCars.length >= 2, "candidate carryover recommendation should keep two candidates");
+    const carryoverFollowup = await postJson(`${BASE}/api/chat`, {
+      message: "\u67e5\u770b\u4e24\u6b3e\u8f66\u7684\u9009\u88c5\u5305\u53ca\u4ea4\u4ed8\u6392\u671f",
+      sessionId: carryoverSessionId,
+    });
+    assert(carryoverFollowup.response.ok, "candidate carryover followup request failed");
+    const carryoverFollowupStatus = assertExpectedModeOrTimeout(carryoverFollowup, "comparison");
+    if (carryoverFollowupStatus === "expected") {
+      const followupCarNames = Array.isArray(carryoverFollowup.json.structured?.carNames)
+        ? carryoverFollowup.json.structured.carNames.map((item) => String(item || "").trim())
+        : [];
+      assert(
+        carryoverCars.every((name) => followupCarNames.some((item) => item.includes(name))),
+        "candidate carryover followup should reuse prior recommended cars"
+      );
+    }
+  }
+
   const isolatedSessionTurn1 = await postJson(`${BASE}/api/chat`, {
     message: "讲讲G9，预算20万",
   });

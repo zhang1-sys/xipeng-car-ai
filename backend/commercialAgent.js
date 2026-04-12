@@ -344,6 +344,29 @@ function hasImplicitFocusedCarCarryoverSignal(message, nextTaskType) {
   );
 }
 
+function hasStoredCandidateFollowupSignal(message, taskMemory) {
+  const text = String(message || "");
+  const storedCars = uniqueStrings([taskMemory?.focusedCar || "", ...(taskMemory?.focusedCars || [])]);
+  if (storedCars.length < 2) return false;
+  return /(?:\u4e24\u6b3e\u8f66|\u8fd9\u4e24\u6b3e|\u8fd9\u4e24\u53f0|\u4e24\u4e2a\u8f66\u578b|\u4e24\u4e2a\u5019\u9009|\u8fd9\u4e24\u4e2a|\u8fd9\u4e24\u8f86|\u4e24\u53f0\u8f66)/u.test(
+    text
+  );
+}
+
+function structuredFocusedCarsFromTurn(structured, nextTaskType) {
+  if (nextTaskType !== "recommend" && nextTaskType !== "compare") return [];
+  const cars = Array.isArray(structured?.cars) ? structured.cars : [];
+  return uniqueStrings(
+    cars
+      .slice(0, 2)
+      .map((car) => {
+        const matched = matchCarByName(pickFirstString(car?.name, normalizeCarLabel(car || {})));
+        return matched ? normalizeCarLabel(matched) : pickFirstString(normalizeCarLabel(car || {}), car?.name);
+      })
+      .filter(Boolean)
+  );
+}
+
 function deriveTaskMemory({
   previousTaskMemory,
   profile,
@@ -379,11 +402,21 @@ function deriveTaskMemory({
     ...(currentTurnProfile.mentionedCars || []),
     ...findMentionedCars(message).map((car) => normalizeCarLabel(car)),
   ]);
+  const structuredFocusedCars =
+    explicitFocusedCars.length === 0
+      ? structuredFocusedCarsFromTurn(structured, nextTaskType)
+      : [];
   const carriedFocusedCars =
-    explicitFocusedCars.length === 0 && hasImplicitFocusedCarCarryoverSignal(message, nextTaskType)
+    explicitFocusedCars.length === 0 &&
+    structuredFocusedCars.length === 0 &&
+    hasImplicitFocusedCarCarryoverSignal(message, nextTaskType)
       ? uniqueStrings([previous.focusedCar || "", ...(previous.focusedCars || [])])
       : [];
-  const currentFocusedCars = uniqueStrings([...explicitFocusedCars, ...carriedFocusedCars]);
+  const currentFocusedCars = uniqueStrings([
+    ...explicitFocusedCars,
+    ...structuredFocusedCars,
+    ...carriedFocusedCars,
+  ]);
   const shouldResetFocusedCars =
     mode === "service" &&
     nextTaskType !== "test_drive" &&
@@ -1365,8 +1398,14 @@ function runSearchCatalogTool({ message, session, args }) {
   };
 }
 
-function runCompareCatalogTool({ message, args }) {
-  const requested = uniqueStrings([...(args.carNames || []), ...findMentionedCars(message).map(normalizeCarLabel)]);
+function runCompareCatalogTool({ message, args, session }) {
+  const requested = uniqueStrings([
+    ...(args.carNames || []),
+    ...findMentionedCars(message).map(normalizeCarLabel),
+    ...(session?.profile?.mentionedCars || []),
+    session?.taskMemory?.focusedCar || "",
+    ...(session?.taskMemory?.focusedCars || []),
+  ]);
   const matched = requested
     .map((name) => matchCarByName(name))
     .filter(Boolean)
@@ -3353,7 +3392,7 @@ async function runAgentTurn({
   const heuristicProfile = extractProfileFromTextSafe(message, brands);
   const shouldHydrateTaskContext = /试驾|预约|门店|到店/.test(
     String(message || "")
-  ) || hasAdvisorFollowupSignal(message);
+  ) || hasAdvisorFollowupSignal(message) || hasStoredCandidateFollowupSignal(message, session.taskMemory);
   const taskProfileHints = buildTaskMemoryProfileHints(session.taskMemory, {
     includeFocusedCars: shouldHydrateTaskContext,
   });
@@ -3486,7 +3525,7 @@ async function runAgentTurn({
       } else if (toolCall.name === "search_catalog") {
         result = runSearchCatalogTool({ message, session: turnSession, args: toolCall.args || {} });
       } else if (toolCall.name === "compare_catalog") {
-        result = runCompareCatalogTool({ message, args: toolCall.args || {} });
+        result = runCompareCatalogTool({ message, session: turnSession, args: toolCall.args || {} });
       } else if (toolCall.name === "find_stores") {
         result = runFindStoresTool({
           session: turnSession,
