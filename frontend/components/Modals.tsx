@@ -88,6 +88,7 @@ function normalizeProvinceNameSafe(raw: string | null | undefined): string {
   return String(raw || "")
     .trim()
     .replace(/Special Administrative Region|Autonomous Region|Autonomous Prefecture|Region|League|Province/gi, "")
+    .replace(/(省|市|自治区|特别行政区)$/g, "")
     .replace(/(省|市|自治区|特别行政区)$/g, "");
 }
 
@@ -97,6 +98,10 @@ function normalizeDistrictNameSafe(raw: string | null | undefined): string {
     .replace(/(District|County)$/gi, "")
     .replace(/(区|县|市)$/g, "")
     .replace(/\s+/g, "");
+}
+
+function normalizeProvinceTokenSafe(raw: string | null | undefined): string {
+  return normalizeProvinceNameSafe(raw).replace(/(省|市|自治区|特别行政区)$/g, "");
 }
 
 function escapeRegExp(value: string): string {
@@ -115,7 +120,7 @@ function normalizeMetaLocationHierarchy(
   return raw
     .map((item) => {
       const provinceItem = item as StoreMetaHierarchyProvince;
-      const province = normalizeProvinceNameSafe(provinceItem.province || provinceItem.name);
+      const province = normalizeProvinceTokenSafe(provinceItem.province || provinceItem.name);
       const cities = sortZh(
         (Array.isArray(provinceItem.cities) ? provinceItem.cities : [])
           .map((city) => normalizeCityNameSafe(city?.name))
@@ -135,7 +140,7 @@ function extractDistrictFromAddress(
 ): string | null {
   let remaining = String(address || "").trim();
   for (const segment of [province, city]) {
-    const normalized = normalizeProvinceNameSafe(segment);
+    const normalized = normalizeProvinceTokenSafe(segment);
     if (!normalized) continue;
     remaining = remaining.replace(new RegExp(escapeRegExp(normalized), "g"), "");
   }
@@ -400,7 +405,7 @@ export function TestDriveModal({
     );
 
     const append = (provinceRaw: string | null | undefined, cityRaw: string | null | undefined) => {
-      const province = normalizeProvinceNameSafe(provinceRaw || cityRaw);
+      const province = normalizeProvinceTokenSafe(provinceRaw || cityRaw);
       const city = normalizeCityNameSafe(cityRaw);
       if (!province) return;
       if (!provinceMap.has(province)) {
@@ -443,7 +448,7 @@ export function TestDriveModal({
     const districts = new Set<string>();
 
     stores.forEach((store) => {
-      const storeProvince = normalizeProvinceNameSafe(store.province || store.city);
+      const storeProvince = normalizeProvinceTokenSafe(store.province || store.city);
       const storeCity = normalizeCityNameSafe(store.city);
       if (selectedProvince && storeProvince !== selectedProvince) return;
       if (selectedCity && storeCity !== selectedCity) return;
@@ -453,7 +458,7 @@ export function TestDriveModal({
       }
     });
 
-    const geoProvince = normalizeProvinceNameSafe(geoLocation?.province);
+    const geoProvince = normalizeProvinceTokenSafe(geoLocation?.province);
     const geoCity = normalizeCityNameSafe(geoLocation?.city);
     const geoDistrict = normalizeDistrictNameSafe(geoLocation?.district);
     if (
@@ -486,7 +491,7 @@ export function TestDriveModal({
     setSelectedDistrict("");
   }, [districtOptions, selectedDistrict]);
 
-  const resolvedProvince = selectedProvince.trim() || normalizeProvinceNameSafe(geoLocation?.province);
+  const resolvedProvince = selectedProvince.trim() || normalizeProvinceTokenSafe(geoLocation?.province);
   const resolvedCity = selectedCity.trim() || normalizeCityNameSafe(geoLocation?.city);
   const resolvedDistrict = selectedDistrict.trim() || normalizeDistrictNameSafe(geoLocation?.district);
   const resolvedLocationDetail = locationDetail.trim() || geoLocation?.formattedAddress?.trim() || "";
@@ -507,7 +512,7 @@ export function TestDriveModal({
 
   const matchedStoreCount = useMemo(() => {
     return stores.filter((store) => {
-      const storeProvince = normalizeProvinceNameSafe(store.province || store.city);
+      const storeProvince = normalizeProvinceTokenSafe(store.province || store.city);
       const storeCity = normalizeCityNameSafe(store.city);
       if (resolvedProvince && storeProvince !== resolvedProvince) return false;
       if (resolvedCity && storeCity !== resolvedCity) return false;
@@ -516,11 +521,21 @@ export function TestDriveModal({
   }, [stores, resolvedProvince, resolvedCity]);
 
   const prioritizedStores = useMemo(() => {
-    if (!resolvedProvince && !resolvedCity) return stores;
+    if (!resolvedProvince && !resolvedCity) {
+      if (!hasGeo) return stores;
+      return [...stores].sort((a, b) => {
+        const aDistanceKm = approxStoreDistanceKm(a);
+        const bDistanceKm = approxStoreDistanceKm(b);
+        if (aDistanceKm == null && bDistanceKm == null) return 0;
+        if (aDistanceKm == null) return 1;
+        if (bDistanceKm == null) return -1;
+        return aDistanceKm - bDistanceKm;
+      });
+    }
     const matched: Array<{ store: StoreItem; distanceKm: number | null }> = [];
     const others: StoreItem[] = [];
     stores.forEach((store) => {
-      const storeProvince = normalizeProvinceNameSafe(store.province || store.city);
+      const storeProvince = normalizeProvinceTokenSafe(store.province || store.city);
       const storeCity = normalizeCityNameSafe(store.city);
       const fitsProvince = !resolvedProvince || storeProvince === resolvedProvince;
       const fitsCity = !resolvedCity || storeCity === resolvedCity;
@@ -540,7 +555,7 @@ export function TestDriveModal({
       return a.distanceKm - b.distanceKm;
     });
     return [...matched.map((item) => item.store), ...others];
-  }, [stores, resolvedProvince, resolvedCity, approxStoreDistanceKm]);
+  }, [stores, resolvedProvince, resolvedCity, approxStoreDistanceKm, hasGeo]);
   const recommendedStore = prioritizedStores[0] || null;
 
   useEffect(() => {
@@ -578,7 +593,7 @@ export function TestDriveModal({
             const provinceName = Array.isArray(geo.province)
               ? null
               : typeof geo.province === "string"
-                ? normalizeProvinceNameSafe(geo.province)
+                ? normalizeProvinceTokenSafe(geo.province)
                 : null;
             const rawCity =
               typeof geo.city === "string" && geo.city.trim()
