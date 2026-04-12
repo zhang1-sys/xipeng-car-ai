@@ -71,10 +71,33 @@ function normalizeTiming(timingMs) {
   };
 }
 
-function deriveAgentStageCodeForCommercial({ mode, profile, message }) {
+function hasExploratoryRecommendationIntent(text) {
+  return /(?:\u63a8\u8350|\u5e2e\u6211\u63a8\u8350|\u51e0\u6b3e|\u54ea\u51e0\u6b3e|\u503c\u5f97|\u91cd\u70b9\u8bd5\u9a7e|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u9884\u7b97|\u8f66\u578b|\u5de5\u4f5c\u65e5|\u901a\u52e4|\u5468\u672b|\u5bb6\u4eba|\u77ed\u9014|\u51fa\u884c)/u.test(
+    String(text || "")
+  );
+}
+
+function hasExplicitConversionIntent(text) {
+  const raw = String(text || "");
+  if (hasExploratoryRecommendationIntent(raw)) return false;
+  return /(?:(?:\u9884\u7ea6|\u5b89\u6392|\u7ea6|\u60f3|\u51c6\u5907|\u53bb|\u5230\u5e97|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44|\u56de\u7535).{0,6}(?:\u8bd5\u9a7e|\u95e8\u5e97|\u987e\u95ee)|(?:\u8bd5\u9a7e|\u95e8\u5e97|\u5230\u5e97).{0,6}(?:\u9884\u7ea6|\u5b89\u6392|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44)|(?:\u8054\u7cfb|\u8ba9|\u5e2e\u6211|\u5b89\u6392|\u8f6c).{0,6}\u987e\u95ee|\u987e\u95ee.{0,6}(?:\u8ddf\u8fdb|\u8054\u7cfb|\u56de\u7535)|(?:\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211|\u56de\u7535))/u.test(
+    raw
+  );
+}
+
+function deriveAgentStageCodeForCommercialLegacy({ mode, profile, message }) {
   const text = String(message || "");
   if (/试驾|到店|门店|预约/.test(text)) return "convert";
   if (/保养|充电|保险|事故|OTA|车机|提车|交付/.test(text) || mode === "service") return "service";
+  if ((profile?.mentionedCars || []).length >= 2 || mode === "comparison") return "compare";
+  if (profile?.budget || (profile?.usage || []).length || mode === "recommendation") return "recommend";
+  return "discover";
+}
+
+function deriveAgentStageCodeForCommercial({ mode, profile, message }) {
+  const text = String(message || "");
+  if (hasExplicitConversionIntent(text)) return "convert";
+  if (/淇濆吇|鍏呯數|淇濋櫓|浜嬫晠|OTA|杞︽満|鎻愯溅|浜や粯/.test(text) || mode === "service") return "service";
   if ((profile?.mentionedCars || []).length >= 2 || mode === "comparison") return "compare";
   if (profile?.budget || (profile?.usage || []).length || mode === "recommendation") return "recommend";
   return "discover";

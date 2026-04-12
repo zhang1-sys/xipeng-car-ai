@@ -5,6 +5,11 @@ const CONFIGURE_RE = /配置|选配|版本|颜色|内饰|套件|选装|配置单
 const HIGH_RISK_ESCALATION_RE =
   /事故|高压|起火|冒烟|无法驾驶|故障灯|刹车|失控|安全气囊|严重异响|漏液|碰撞|召回|赔偿|投诉|法律|律师|电池包|电池受损|电池破损|底盘受损|底部磕碰|托底|挤压变形|继续充电|还能不能充电/i;
 
+const EXPLORATORY_RECOMMENDATION_RE =
+  /(?:\u63a8\u8350|\u5e2e\u6211\u63a8\u8350|\u51e0\u6b3e|\u54ea\u51e0\u6b3e|\u503c\u5f97|\u91cd\u70b9\u8bd5\u9a7e|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u9884\u7b97|\u8f66\u578b|\u5de5\u4f5c\u65e5|\u901a\u52e4|\u5468\u672b|\u5bb6\u4eba|\u77ed\u9014|\u51fa\u884c)/u;
+const EXPLICIT_CONVERSION_ACTION_RE =
+  /(?:(?:\u9884\u7ea6|\u5b89\u6392|\u7ea6|\u60f3|\u51c6\u5907|\u53bb|\u5230\u5e97|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44|\u56de\u7535).{0,6}(?:\u8bd5\u9a7e|\u95e8\u5e97|\u987e\u95ee)|(?:\u8bd5\u9a7e|\u95e8\u5e97|\u5230\u5e97).{0,6}(?:\u9884\u7ea6|\u5b89\u6392|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44)|(?:\u8054\u7cfb|\u8ba9|\u5e2e\u6211|\u5b89\u6392|\u8f6c).{0,6}\u987e\u95ee|\u987e\u95ee.{0,6}(?:\u8ddf\u8fdb|\u8054\u7cfb|\u56de\u7535)|(?:\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211|\u56de\u7535))/u;
+
 const FALLBACK_LIBRARY = {
   llm_timeout: {
     title: "LLM 超时 fallback",
@@ -45,6 +50,16 @@ function hasConversionIntent(message, nextActions = []) {
   return hasPattern(CONVERSION_RE, [message, ...(nextActions || [])]);
 }
 
+function hasExploratoryRecommendationIntent(message) {
+  return EXPLORATORY_RECOMMENDATION_RE.test(String(message || ""));
+}
+
+function hasExplicitStoreConversionIntent(message, nextActions = []) {
+  const values = [message, ...(nextActions || [])];
+  if (values.some((value) => hasExploratoryRecommendationIntent(value))) return false;
+  return hasPattern(EXPLICIT_CONVERSION_ACTION_RE, values);
+}
+
 function hasEscalationRisk(message) {
   return HIGH_RISK_ESCALATION_RE.test(String(message || ""));
 }
@@ -54,6 +69,7 @@ function buildRoutingPolicy({ mode, stageCode, message, profile, structured, con
   const effectiveStage = String(stageCode || "");
   const text = String(message || "");
   const conversionIntent = hasConversionIntent(text, nextActions);
+  const explicitStoreConversionIntent = hasExplicitStoreConversionIntent(text, nextActions);
   const escalationRisk = hasEscalationRisk(text);
   const hasServiceQuery = SERVICE_RETRIEVAL_RE.test(text);
   const hasConfiguratorIntent =
@@ -67,19 +83,20 @@ function buildRoutingPolicy({ mode, stageCode, message, profile, structured, con
   let escalation = null;
 
   if (effectiveStage === "service" || normalizedMode === "service" || hasServiceQuery) {
-    allowedTools.push("search_service_knowledge", "find_stores");
+    allowedTools.push("search_service_knowledge");
+    if (explicitStoreConversionIntent) allowedTools.push("find_stores");
     preferredTools.push("search_service_knowledge");
     requiredDataSource = "retrieval";
   }
 
   if (effectiveStage === "recommend" || normalizedMode === "recommendation") {
-    allowedTools.push("search_catalog", "find_stores");
+    allowedTools.push("search_catalog");
     preferredTools.push("search_catalog");
     requiredDataSource = "structured";
   }
 
   if (effectiveStage === "compare" || normalizedMode === "comparison") {
-    allowedTools.push("compare_catalog", "find_stores");
+    allowedTools.push("compare_catalog");
     preferredTools.push("compare_catalog");
     requiredDataSource = "structured";
   }
@@ -90,7 +107,7 @@ function buildRoutingPolicy({ mode, stageCode, message, profile, structured, con
     requiredDataSource = "structured";
   }
 
-  if (conversionIntent) {
+  if (explicitStoreConversionIntent) {
     if (!allowedTools.includes("find_stores")) allowedTools.push("find_stores");
     preferredTools.push("find_stores");
   }

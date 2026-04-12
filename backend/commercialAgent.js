@@ -280,9 +280,25 @@ function hasAdvisorFollowupSignal(text) {
   );
 }
 
+function hasExploratoryRecommendationIntentSafe(text) {
+  return /(?:\u63a8\u8350|\u5e2e\u6211\u63a8\u8350|\u51e0\u6b3e|\u54ea\u51e0\u6b3e|\u503c\u5f97|\u91cd\u70b9\u8bd5\u9a7e|\u9002\u5408\u6211|\u5e2e\u6211\u9009|\u9884\u7b97|\u8f66\u578b|\u5de5\u4f5c\u65e5|\u901a\u52e4|\u5468\u672b|\u5bb6\u4eba|\u77ed\u9014|\u51fa\u884c)/u.test(
+    String(text || "")
+  );
+}
+
+function hasExplicitConversionIntentSafe(text) {
+  const raw = String(text || "");
+  if (hasExploratoryRecommendationIntentSafe(raw)) return false;
+  return /(?:(?:\u9884\u7ea6|\u5b89\u6392|\u7ea6|\u60f3|\u51c6\u5907|\u53bb|\u5230\u5e97|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44|\u56de\u7535).{0,6}(?:\u8bd5\u9a7e|\u95e8\u5e97|\u987e\u95ee)|(?:\u8bd5\u9a7e|\u95e8\u5e97|\u5230\u5e97).{0,6}(?:\u9884\u7ea6|\u5b89\u6392|\u8054\u7cfb|\u8ddf\u8fdb|\u7559\u8d44)|(?:\u8054\u7cfb|\u8ba9|\u5e2e\u6211|\u5b89\u6392|\u8f6c).{0,6}\u987e\u95ee|\u987e\u95ee.{0,6}(?:\u8ddf\u8fdb|\u8054\u7cfb|\u56de\u7535)|(?:\u6700\u8fd1.*\u5e97|\u54ea\u5bb6\u5e97|\u6700\u5feb.*\u8bd5\u9a7e|\u8ddf\u8fdb|\u7559\u8d44|\u8054\u7cfb\u6211|\u56de\u7535))/u.test(
+    raw
+  );
+}
+
 function inferTaskTypeFromTurn(mode, message, previousTaskType) {
   const text = String(message || "");
   if (hasAdvisorFollowupSignal(text)) return "advisor_followup";
+  if (hasExploratoryRecommendationIntentSafe(text) && mode === "recommendation") return "recommend";
+  if (hasExplicitConversionIntentSafe(text)) return "test_drive";
   if (/试驾|预约|到店/.test(text)) return "test_drive";
   if (/配置|选配/.test(text)) return "configure";
   if (mode === "comparison") return "compare";
@@ -408,8 +424,17 @@ function extractCitySnippetSafe(text) {
     if (!candidate || candidate.length < 2 || candidate.length > 8) return "";
     if (bannedPrefixes.some((item) => candidate.startsWith(item))) return "";
     if (/城市|市区|通勤|场景|全国|同城/.test(candidate)) return "";
-    return candidate.replace(/[省市区县]$/g, "");
+    const trimmedTail = candidate.replace(/[啊呢吧呀哈啦哦噢嘛]$/u, "");
+    return trimmedTail.replace(/[省市区县]$/g, "");
   };
+  const emphaticCnMatch = normalized.match(
+    /(?:\u6211\u662f\u5728|\u6211\u5c31\u5728|\u6211\u73b0\u5728\u5728|\u4eba\u5c31\u5728)([\u4e00-\u9fa5]{2,10})(?:\u554a|\u5462|\u5427|\u54df|[,.!?，。！？]|$)/u
+  );
+  if (emphaticCnMatch) {
+    const cleaned = cleanCityCandidate(emphaticCnMatch[1]);
+    if (cleaned) return cleaned;
+  }
+
   const directCnMatch = normalized.match(
     /(?:在|住在|人在|定位到|我在|我是)([\u4e00-\u9fa5]{2,10})(?:市|区|县)?/u
   );
@@ -425,6 +450,14 @@ function extractCitySnippetSafe(text) {
     const cleaned = cleanCityCandidate(cityCnMatch[1]);
     if (cleaned) return cleaned;
   }
+  const emphaticMatch = raw.match(
+    /(?:\u6211\u662f\u5728|\u6211\u5c31\u5728|\u6211\u73b0\u5728\u5728|\u4eba\u5c31\u5728)\s*([\u4e00-\u9fa5]{2,6})(?:\u554a|\u5462|\u5427|\u54df|[,.!?，。！？]|$)/u
+  );
+  if (emphaticMatch) {
+    const cleaned = cleanCityCandidate(emphaticMatch[1]);
+    if (cleaned) return cleaned;
+  }
+
   const directMatch = raw.match(
     /(?:在|去|住在|人在|定位到|我在|我是)\s*([\u4e00-\u9fa5]{2,6})(?:市|区|县)?/u
   );
@@ -1336,6 +1369,12 @@ function runFindStoresTool({ session, storesPayload, args, message }) {
     sanitizeCityHint(session.profile.city)
   );
   const normalizedCity = normalizeRegionToken(city);
+  if (!normalizedCity) {
+    return {
+      data: [],
+      summary: "当前没有明确城市或定位，先不匹配具体门店",
+    };
+  }
   const filtered = list.filter((store) => {
     if (brand && store.brand !== brand) return false;
     if (city) {
