@@ -645,6 +645,7 @@ function buildAgentPayload({ state, stage, message, durationMs, nextActions, mis
     nextActions,
   });
   return buildRuntimeAgentPayload({
+    mode: "configurator",
     stageCode,
     confidence: Number(confidence.toFixed(2)),
     status: completed ? "ready_to_convert" : "waiting_user",

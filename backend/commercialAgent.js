@@ -10,6 +10,7 @@ const {
   buildAgentPayload,
   deriveAgentStageCodeForCommercial,
   deriveAgentStatus: deriveSharedAgentStatus,
+  normalizeStageCodeForMode,
 } = require("./agentRuntimeContract");
 const {
   buildRoutingPolicy,
@@ -3333,11 +3334,14 @@ async function runAgentTurn({
   };
   plan.displayGoal = message;
   plan.userGoal = message;
-  let stageCode = deriveAgentStageCodeForCommercial({
-    mode: plan.mode,
-    profile: turnProfile,
-    message,
-  });
+  let stageCode = normalizeStageCodeForMode(
+    plan.mode,
+    deriveAgentStageCodeForCommercial({
+      mode: plan.mode,
+      profile: turnProfile,
+      message,
+    })
+  );
   let routingPolicy = buildRoutingPolicy({
     mode: plan.mode,
     stageCode,
@@ -3355,6 +3359,7 @@ async function runAgentTurn({
   }
 
   const toolResults = [];
+  let activeFallback = null;
   for (const toolCall of plan.toolCalls) {
     try {
       emitAgentStep(onStep, {
@@ -3405,6 +3410,7 @@ async function runAgentTurn({
         toolName: toolCall.name,
         policy: routingPolicy,
       });
+      activeFallback = fallback;
       toolResults.push({
         tool: toolCall.name,
         status: "failed",
@@ -3433,6 +3439,13 @@ async function runAgentTurn({
     routingPolicy,
     onStep,
   });
+  if (!activeFallback && source !== "llm") {
+    activeFallback = resolveDeterministicFallback({
+      failureType: client && model ? "llm_timeout" : "tool_timeout",
+      toolName: source === "local" ? "answer_synthesis" : "",
+      policy: routingPolicy,
+    });
+  }
   const synthesisDurationMs = Date.now() - synthesisStartedAt;
   const totalDurationMs = Date.now() - turnStartedAt;
   if (!suppressCompletionStep) {
@@ -3456,12 +3469,24 @@ async function runAgentTurn({
     mode = recovered.mode;
     finalStructured = recovered.structured;
     finalReply = recovered.reply;
-    stageCode = deriveAgentStageCodeForCommercial({
+    stageCode = normalizeStageCodeForMode(
+      mode,
+      deriveAgentStageCodeForCommercial({
+        mode,
+        profile: turnProfile,
+        message,
+      })
+    );
+  }
+
+  stageCode = normalizeStageCodeForMode(
+    mode,
+    deriveAgentStageCodeForCommercial({
       mode,
       profile: turnProfile,
       message,
-    });
-  }
+    })
+  );
 
   session.lastMode = mode;
   session.turns = [...session.turns, {
@@ -3544,6 +3569,7 @@ async function runAgentTurn({
     mode,
     structured: finalStructured,
     agent: buildAgentPayload({
+      mode,
       stageCode,
       confidence: buildAgentConfidence(turnProfile, mode, toolResults),
       status: status.code,
@@ -3574,6 +3600,7 @@ async function runAgentTurn({
         escalation: routingPolicy.escalation,
       },
       fallback: routingPolicy.deterministicFallbacks,
+      activeFallback,
     }),
   };
 }

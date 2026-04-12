@@ -41,6 +41,25 @@ const STATUS_META = {
   },
 };
 
+const MODE_STAGE_ORDER = {
+  recommendation: ["discover", "recommend", "compare", "configure", "convert", "handoff"],
+  comparison: ["discover", "recommend", "compare", "configure", "convert", "handoff"],
+  service: ["discover", "service", "convert", "handoff"],
+  configurator: ["discover", "configure", "convert", "handoff"],
+};
+
+function allowedStagesForMode(mode) {
+  return MODE_STAGE_ORDER[String(mode || "").trim()] || STAGE_ORDER;
+}
+
+function normalizeStageCodeForMode(mode, stageCode) {
+  const requestedStage = STAGE_ORDER.includes(stageCode) ? stageCode : "discover";
+  const allowedStages = allowedStagesForMode(mode);
+  if (allowedStages.includes(requestedStage)) return requestedStage;
+  if (requestedStage === "handoff" && allowedStages.includes("handoff")) return "handoff";
+  if (requestedStage === "convert" && allowedStages.includes("convert")) return "convert";
+  return allowedStages[0] || "discover";
+}
 function uniqueStrings(list) {
   return [...new Set((Array.isArray(list) ? list : []).map((item) => String(item || "").trim()).filter(Boolean))];
 }
@@ -191,6 +210,7 @@ function deriveAgentStatus({
 }
 
 function buildAgentPayload({
+  mode,
   stageCode,
   confidence,
   status,
@@ -213,8 +233,9 @@ function buildAgentPayload({
   transition,
   routing,
   fallback,
+  activeFallback,
 }) {
-  const normalizedStageCode = STAGE_ORDER.includes(stageCode) ? stageCode : "discover";
+  const normalizedStageCode = normalizeStageCodeForMode(mode, stageCode);
   const normalizedChecklist = normalizeChecklist(checklist);
   const normalizedMissingInfo = uniqueStrings(missingInfo);
   const normalizedNextActions = uniqueStrings(nextActions).slice(0, 4);
@@ -271,14 +292,17 @@ function buildAgentPayload({
     transition: transition || null,
     routing: routing || null,
     fallback: fallback || null,
+    activeFallback: activeFallback || null,
   };
 }
 
 module.exports = {
   STAGE_ORDER,
   STAGE_LABELS,
+  MODE_STAGE_ORDER,
   uniqueStrings,
   stageLabelFromCode,
+  normalizeStageCodeForMode,
   deriveAgentStageCodeForCommercial,
   deriveAgentStageCodeForReActMode,
   deriveAgentStageCodeForConfigurator,

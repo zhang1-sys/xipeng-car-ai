@@ -497,6 +497,7 @@ async function runReActTurn({ client, model, session, message, storesPayload, on
     mode,
     structured,
     agent: buildAgentPayload({
+      mode,
       stageCode,
       confidence,
       status: status.code,

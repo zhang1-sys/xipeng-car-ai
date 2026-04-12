@@ -242,6 +242,12 @@ export interface AgentPayload {
   transition?: AgentTransition | null;
   routing?: AgentRouting | null;
   fallback?: Record<string, unknown> | null;
+  activeFallback?: {
+    key?: string;
+    title?: string;
+    summary?: string;
+    userHint?: string;
+  } | null;
 }
 
 export interface AgentReadinessDimension {
